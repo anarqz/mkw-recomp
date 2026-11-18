@@ -6,11 +6,11 @@
 
 #include "mkw_plugin.h"
 #include "mod_settings.h"
-#include "platform/platform.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include "platform/platform.h"   // C linkage (it has no guard of its own)
 
 enum { MOD_PAGE_INPUTS = 32, MOD_PAGE_INPUT_CAP = 256 };
 
