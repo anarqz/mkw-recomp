@@ -13,14 +13,17 @@
 
 #include "imgui.h"
 
-#include "cfg.h"
 #include "launcher_look.h"
 #include "launcher_players.h"
 #include "mkw_plugin.h"
 #include "mod_page.h"
 #include "mod_settings.h"
+
+extern "C" {   // the runtime's C headers, as mods.cpp includes them
+#include "cfg.h"
 #include "platform/platform.h"
 #include "ui_text.h"
+}
 
 extern "C" void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 extern const char rt_port_version[];
