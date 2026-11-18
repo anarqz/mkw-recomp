@@ -11,6 +11,7 @@
 // locks or per-thread caches. Host (HLE) functions at addresses outside the modules live in a small hash table that
 // is also fixed at init; they are looked up only after the flat table misses.
 #include "dispatch.h"
+#include "plugin_dispatch.h"
 #include "host.h"
 #include "platform/platform.h"
 
