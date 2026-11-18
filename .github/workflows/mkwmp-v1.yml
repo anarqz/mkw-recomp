@@ -1,8 +1,8 @@
-name: MKWMP on plugin API v1
+name: MKWMP on plugin API v1-v2
 
 # Fork only, test builds (never a release): mkw-recomp's main, with its native plugin API version 1, built for Windows
 # as its release workflow builds it (mkw.exe, the setup tools, the zip), and MKWMP (github.com/anarqz/mkwmp, branch
-# plugin-v1) laid out as the mod folder mkw-recomp loads: mods/mkwmp/ (plugin/mkwmp.dll + mkwmp.so, the voice
+# plugin-seat: the options page and its own seat client) laid out as the mod folder mkw-recomp loads: mods/mkwmp/ (plugin/mkwmp.dll + mkwmp.so, the voice
 # libraries, mod.json). To try them: unzip the runtime into a folder of its own, set the game up there, copy mkwmp/
 # into <game>/mods/ and run `mkw --play --mod mkwmp` (or enable it on the Mods page).
 on:
@@ -12,7 +12,7 @@ on:
     inputs:
       mkwmp_ref:
         description: MKWMP branch or commit to build
-        default: plugin-v1
+        default: plugin-seat
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MKWMP_REF: ${{ inputs.mkwmp_ref || 'plugin-v1' }}
+  MKWMP_REF: ${{ inputs.mkwmp_ref || 'plugin-seat' }}
 
 jobs:
   windows:
