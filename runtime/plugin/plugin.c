@@ -42,6 +42,8 @@ static Plugin plugins[MAX_PLUGINS];
 static int nplugins, in_init;
 static struct { void (*cb)(void *); void *user; } loaded_cb[MAX_LOADED_CB];
 static int nloaded_cb, game_loaded;
+static struct { void (*cb)(void *); void *user; } exit_cb[MAX_LOADED_CB];
+static int nexit_cb;
 
 static void api_log(const char *fmt, ...) {
     char line[1024];
@@ -72,6 +74,16 @@ static void api_on_game_loaded(void (*cb)(void *user), void *user) {
     }
     loaded_cb[nloaded_cb].cb = cb;
     loaded_cb[nloaded_cb++].user = user;
+}
+
+static int api_on_exit(void (*cb)(void *user), void *user) {
+    if (!in_init || !cb || nexit_cb == MAX_LOADED_CB) {
+        rt_log("plugin: on_exit refused: only from mkw_plugin_init, at most %d callbacks", MAX_LOADED_CB);
+        return 0;
+    }
+    exit_cb[nexit_cb].cb = cb;
+    exit_cb[nexit_cb++].user = user;
+    return 1;
 }
 
 static int api_override_address(uint64_t addr, MkwGuestFn fn) {
@@ -175,6 +187,7 @@ static const MkwPluginApi api_template = {
     .notice = menu_notice,
     .overlay_set = api_overlay_set,
     .overlay_show = plugin_overlay_show,
+    .on_exit = api_on_exit,
 };
 
 // A plugin that declines or fails to load is told to the player too: the mod they enabled does nothing this run.
@@ -265,3 +278,10 @@ void plugins_game_loaded(void) {
 }
 
 void plugins_started(void) { game_loaded = 0; }
+
+void plugins_exit(void) {
+    static volatile int32_t done;
+    if (plat_xchg32(&done, 1)) return;   // the window closing and the game's exit may both get here
+    if (nexit_cb) rt_log("plugin: game ending: %d exit callback(s)", nexit_cb);
+    for (int i = 0; i < nexit_cb; i++) exit_cb[i].cb(exit_cb[i].user);
+}

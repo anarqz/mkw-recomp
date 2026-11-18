@@ -5,6 +5,7 @@
 void plugins_load(void);          // before ldr_load: each enabled mod's plugin/ libraries, their mkw_plugin_init
 void plugins_game_loaded(void);   // after ldr_load, before hostfn_seal: the plugins' on_game_loaded callbacks
 void plugins_started(void);       // after hostfn_seal: no more address overrides
+void plugins_exit(void);          // the game ends normally (window closed, the guest's exit): the on_exit callbacks, once
 
 // The plugins' overlay drawings (plugin_overlay.cpp): registered and switched by the API, laid out by ui/menu/menu.cpp
 int plugin_overlay_add(MkwOverlayFn fn, void *user);   // 0 when full
