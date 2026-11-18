@@ -1,10 +1,12 @@
 // An example plugin that changes nothing in the game: a notice when the game code is loaded and a small box in a
 // corner of the picture with the runtime's and the game's versions. Its options page (the Mods page's Options button,
-// mkw_mod_page) shows every widget of MkwPage: whether to draw the box, which corner, the notice's text, and a list of
-// names to add and remove; the game reads them back with setting_get. Built into a mod folder (or its .zip) that the
+// mkw_mod_page, also a tab of the in-game menu's settings) shows every widget of MkwPage in two columns: whether to
+// draw the box, which corner, the notice's text and seconds, and a list of names to add and remove; the game reads
+// them back with setting_get. Built into a mod folder (or its .zip) that the
 // launcher's Mods page imports by tools/plugin/example.sh. It includes only mkw_plugin.h and links against nothing of
 // mkw-recomp.
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "mkw_plugin.h"
@@ -22,9 +24,12 @@ static void draw(const MkwOverlay *o, void *user) {
     o->text(x + pad, y + pad, 0xffd75affu, line);
 }
 
+MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p);
+
 static void loaded(void *user) {
     (void)user;
-    api->notice(greeting, 5);
+    char secs[8];
+    api->notice(greeting, api->setting_get("seconds", secs, sizeof secs) ? atoi(secs) : 5);
     char v[8];
     if (!api->setting_get("box", v, sizeof v) || !strcmp(v, "1")) api->overlay_show(draw, 1);
 }
@@ -44,22 +49,24 @@ MKW_PLUGIN_EXPORT int mkw_plugin_init(const MkwPluginApi *a, uint32_t version, c
              api->profile_name);
     api->overlay_set(draw, 0);
     api->on_game_loaded(loaded, 0);
+    api->settings_tab("Example", mkw_mod_page);   // the same page as a tab of the in-game menu's settings
     api->log("example plugin: init in %s (language %s)", api->mod_dir, api->language);
     return 0;
 }
 
 // ---- the options page. Its texts in two languages, as a plugin translates its own (page->language).
 enum { T_INTRO, T_BOX, T_CORNER, T_LEFT, T_RIGHT, T_GREETING, T_GREETING_HINT, T_NAMES, T_NO_NAMES, T_REMOVE, T_ADD,
-       T_NEW_NAME, T_FULL, T_COUNT };
+       T_NEW_NAME, T_FULL, T_SECONDS, T_IN_GAME, T_COUNT };
 static const char *const en[T_COUNT] = {
     "This plugin changes nothing in the game: it shows its options page and a box over the picture.",
     "Show the version box over the game", "Corner", "Top left", "Top right", "Notice at start", "Example plugin loaded",
-    "Names", "No names yet", "Remove", "Add", "New name", "The list is full"};
+    "Names", "No names yet", "Remove", "Add", "New name", "The list is full", "Notice seconds",
+    "The box and the notice change at the next start."};
 static const char *const pt_br[T_COUNT] = {
     "Este plugin não muda nada no jogo: mostra sua página de opções e uma caixa sobre a imagem.",
     "Mostrar a caixa de versão sobre o jogo", "Canto", "Superior esquerdo", "Superior direito", "Aviso ao iniciar",
     "Plugin de exemplo carregado", "Nomes", "Nenhum nome ainda", "Remover", "Adicionar", "Novo nome",
-    "A lista está cheia"};
+    "A lista está cheia", "Segundos do aviso", "A caixa e o aviso mudam no próximo início."};
 
 // The names: one setting, "a,b,c" (a list a plugin keeps itself; a server's would come from a thread of its own).
 enum { MAX_NAMES = 8, NAME_CAP = 33 };
@@ -90,6 +97,7 @@ MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p) {
     if (p->opened) p->log("example plugin: options page opened for %s", p->profile_name);
     p->text(t[T_INTRO]);
     p->separator();
+    p->columns_begin(2);   // the box's settings on the left, the names on the right
     p->checkbox("box", t[T_BOX], 1);
     char v[8];
     int box = !p->setting_get("box", v, sizeof v) || !strcmp(v, "1");
@@ -99,7 +107,9 @@ MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p) {
     p->choice("corner", t[T_CORNER], corners, labels, 2);
     p->disabled_end();
     p->input("greeting", t[T_GREETING], t[T_GREETING_HINT], 100, 0);
+    p->slider("seconds", t[T_SECONDS], 1, 10, 5);
 
+    p->column_next();
     p->heading(t[T_NAMES]);
     char names[MAX_NAMES][NAME_CAP];
     int n = read_names(p, names), remove = -1;
@@ -125,4 +135,6 @@ MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p) {
         n--;
     }
     if (pressed || remove >= 0) write_names(p, names, n);
+    p->columns_end();
+    if (p->in_game) p->note(MKW_NOTE_DIM, t[T_IN_GAME]);
 }

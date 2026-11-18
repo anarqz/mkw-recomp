@@ -13,6 +13,7 @@
 #include "plugin_dispatch.h"
 #include "host.h"
 #include "mkw_plugin.h"
+#include "mod_page_ui.h"
 #include "mod_settings.h"
 #include "plugin.h"
 #include "players.h"
@@ -84,6 +85,47 @@ static int api_on_exit(void (*cb)(void *user), void *user) {
     exit_cb[nexit_cb].cb = cb;
     exit_cb[nexit_cb++].user = user;
     return 1;
+}
+
+static char profile_name[PLAYER_NAME_BYTES];   // the player playing (player_name of rt_config()->profile)
+
+// ---- the mods' tabs in the in-game menu's settings (settings_tabs.cpp draws them through plugins_tab_*)
+enum { MAX_TABS = 8 };
+static struct {
+    char title[64];
+    void (*draw)(const MkwPage *page);
+    ModPageUi ui;
+} tabs[MAX_TABS];
+static int ntabs;
+static int cur_plugin = -1;   // the plugin whose mkw_plugin_init runs (load_one)
+
+static int api_settings_tab(const char *title, void (*draw)(const struct MkwPage *page)) {
+    if (!in_init || !draw || !title || !*title || ntabs == MAX_TABS || cur_plugin < 0) {
+        rt_log("plugin: settings_tab refused: only from mkw_plugin_init, with a title, at most %d tabs", MAX_TABS);
+        return 0;
+    }
+    snprintf(tabs[ntabs].title, sizeof tabs[ntabs].title, "%s", title);
+    tabs[ntabs].draw = draw;
+    ModPageUi *ui = &tabs[ntabs].ui;
+    memset(ui, 0, sizeof *ui);
+    snprintf(ui->mod, sizeof ui->mod, "%s", plugins[cur_plugin].mod_name);
+    snprintf(ui->mod_dir, sizeof ui->mod_dir, "%s", plugins[cur_plugin].mod_dir);
+    snprintf(ui->player_dir, sizeof ui->player_dir, "%s", rt_config()->profile);
+    ui->in_game = 1;
+    ntabs++;
+    rt_log("plugin: %s: settings tab \"%s\"", plugins[cur_plugin].mod_name, title);
+    return 1;
+}
+
+int plugins_tab_count(void) { return ntabs; }
+const char *plugins_tab_title(int i) { return i >= 0 && i < ntabs ? tabs[i].title : ""; }
+void plugins_tab_draw(int i, float scale) {
+    if (i < 0 || i >= ntabs) return;
+    snprintf(tabs[i].ui.player_name, sizeof tabs[i].ui.player_name, "%s", profile_name);
+    mod_page_ui_draw(&tabs[i].ui, tabs[i].draw, scale);
+}
+void plugins_tab_shown(int i) {
+    if (i >= 0 && i < ntabs) tabs[i].ui.reopen = 1;   // MkwPage.opened in its first frame each time it is shown
 }
 
 static int api_override_address(uint64_t addr, MkwGuestFn fn) {
@@ -165,7 +207,6 @@ static int (*const setting_set_slot[MAX_PLUGINS])(const char *, const char *) = 
 #undef S
 _Static_assert(MAX_PLUGINS == 32, "one setting_get / setting_set pair per plugin slot");
 
-static char profile_name[PLAYER_NAME_BYTES];   // the player playing (player_name of rt_config()->profile)
 
 static const MkwPluginApi api_template = {
     .size = sizeof(MkwPluginApi),
@@ -188,6 +229,7 @@ static const MkwPluginApi api_template = {
     .overlay_set = api_overlay_set,
     .overlay_show = plugin_overlay_show,
     .on_exit = api_on_exit,
+    .settings_tab = api_settings_tab,
 };
 
 // A plugin that declines or fails to load is told to the player too: the mod they enabled does nothing this run.
@@ -229,8 +271,10 @@ static int load_one(const char *name, void *ctx) {
     q->api.setting_set = setting_set_slot[nplugins];
     const char *message = NULL;
     in_init = 1;
+    cur_plugin = nplugins;
     int r = init(&q->api, MKW_PLUGIN_API_VERSION, &message);
     in_init = 0;
+    cur_plugin = -1;
     if (r) {
         char why[300];
         snprintf(why, sizeof why, "%s (code %d)", message && *message ? message : "it declined to start", r);
