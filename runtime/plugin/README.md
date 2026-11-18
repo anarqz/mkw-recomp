@@ -9,8 +9,9 @@ business, and nothing of it lives in this repo. The software keyboard's number p
 
 | File | What it is |
 |---|---|
-| `mkw_plugin.h` | The API, version 1: the one header a plugin includes (it links against nothing of mkw-recomp). Rules for threads, guest memory and what each hook may do are in its comments |
+| `mkw_plugin.h` | The API, version 2 (version 1, plus the language, the player, the mod's settings and its options page `MkwPage`): the one header a plugin includes (it links against nothing of mkw-recomp). Rules for threads, guest memory and what each hook may do are in its comments |
 | `plugin_overlay.cpp` | The plugins' drawings over the picture (`overlay_set`, `overlay_show`): rectangles and text on ImGui's background list in the menu overlay's frame, under the menu, the number pad and the notices |
+| `mod_settings.c`, `mod_settings.h` | A mod's settings per player: `<player folder>/mod-settings/<mod>.ini`, one `key=value` per line, written atomically. The store behind the API's `setting_get` / `setting_set` (version 2) and the options page's widgets (`ui/launcher/mod_page.cpp`); outside the mod's folder, so updating or importing the mod again keeps them. Test: `tests/runtime/test_mod_settings.py` |
 | `plugin_dispatch.h` | `cpu/dispatch.c`'s two entries for overrides by address (`rt_dispatch_override`, `rt_dispatch_original`), declared here and not in `cpu/dispatch.h`: `RT_GAME_ID` hashes the headers of `runtime/cpu` (`tools/build/build.py` `game_id`), and declarations the game code never sees must not make players build it again |
 | `plugin.c`, `plugin.h` | The loader: each enabled mod's `plugin/` libraries, their `mkw_plugin_init`, the API table, the game-loaded callbacks. A plugin that declines or fails to load is logged and shown to the player in a box |
 

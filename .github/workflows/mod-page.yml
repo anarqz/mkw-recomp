@@ -1,0 +1,97 @@
+name: Mod options page
+
+# Fork only (the mod-page proposal): the Linux runtime built as upstream's CI builds it, the example plugin built into a
+# mod, and the start screen shot on a virtual display: the Mods page with the mod's Options button, and its options
+# page in English and Brazilian Portuguese, before and after settings were stored. The shots are artifacts for the
+# proposal; upstream's own CI (ci.yml, dispatched on this branch) runs the builds and tests.
+on:
+  push:
+    branches: [mod-page]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mod-page-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VMA_URL: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.4.0/include/vk_mem_alloc.h
+  VMA_SHA256: 8487b7995ad3b263eb73bc5b9a77d71aa69b6bef5d58a715c02d2663afd81f1a
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: >-
+          pacman -Syu --noconfirm --needed git ccache clang lld llvm ninja make cmake pkgconf expat binutils uv python
+          vulkan-icd-loader vulkan-swrast xorg-server-xvfb xorg-xauth mesa
+      - uses: actions/checkout@v7
+      - name: ccache in the checkout
+        run: echo "CCACHE_DIR=$PWD/.ccache" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-modpage-${{ github.sha }}
+          restore-keys: ccache-modpage-
+      - name: VMA header
+        run: |
+          mkdir -p scratchpad/vma
+          curl -sSfL -o scratchpad/vma/vk_mem_alloc.h "$VMA_URL"
+          echo "$VMA_SHA256  scratchpad/vma/vk_mem_alloc.h" | sha256sum -c -
+      - uses: actions/cache@v6
+        with:
+          path: build/sysroot
+          key: sysroot-${{ hashFiles('tools/build/sysroot.py') }}
+      - name: Steam Runtime sysroot (glibc 2.31)
+        run: uv run tools/build/sysroot.py
+      - name: Runtime and start screen (no game)
+        run: uv run tools/build/build.py --dist --runtime-only --sysroot build/sysroot
+      - name: Libraries to run it
+        run: |
+          uv run python -c "import sys; from pathlib import Path; sys.path.insert(0, 'tools/build'); import release; release.bundle_libs(Path('build/dist/linux/mkw'), Path('build/run-lib'))"
+          echo "LD_LIBRARY_PATH=$PWD/build/run-lib" >> "$GITHUB_ENV"
+      - name: The settings store's test, the texts' test
+        run: uv run pytest -q tests/runtime/test_mod_settings.py tests/runtime/test_ui_text.py
+      - name: The example plugin as a mod (C, and C++ for the export's name)
+        run: |
+          game="$RUNNER_TEMP/game"
+          mkdir -p "$game/mods/example-plugin/plugin"
+          printf '{"name": "example-plugin", "title": "Example plugin", "has_plugin": true}\n' > "$game/mods/example-plugin/mod.json"
+          cc -std=c11 -O2 -Wall -Wextra -Werror -shared -fPIC -fvisibility=hidden -I runtime/plugin \
+            tools/plugin/example_plugin.c -o "$game/mods/example-plugin/plugin/example_plugin.so"
+          c++ -x c++ -std=c++17 -O2 -Wall -Wextra -Werror -shared -fPIC -fvisibility=hidden -I runtime/plugin \
+            tools/plugin/example_plugin.c -o "$RUNNER_TEMP/example_cpp.so"
+          nm -D "$RUNNER_TEMP/example_cpp.so" | grep -q ' T mkw_mod_page$'
+          nm -D "$RUNNER_TEMP/example_cpp.so" | grep -q ' T mkw_plugin_init$'
+          echo "GAME=$game" >> "$GITHUB_ENV"
+      - name: Shots on a virtual display
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          shot() {   # name, then the environment of that run
+            local name=$1; shift
+            env MKW_GAME_DIR="$GAME" MKW_UPDATE_CHECK=0 SDL_VIDEO_DRIVER=x11 MKW_LAUNCHER_NO_MERGE=1 \
+              MKW_LAUNCHER_SHOT_OUT="$PWD/shots/$name.png" "$@" \
+              xvfb-run -a -s "-screen 0 1920x1080x24" build/dist/linux/mkw --launcher || echo "$name: exit $?"
+          }
+          shot mods MKW_LAUNCHER_SHOT=90:mods
+          shot options-en MKW_LAUNCHER_SHOT=90:mods MKW_LAUNCHER_MOD_PAGE=example-plugin MKW_MENU_LANG=en
+          shot options-pt-BR MKW_LAUNCHER_SHOT=90:mods MKW_LAUNCHER_MOD_PAGE=example-plugin MKW_MENU_LANG=pt-BR
+          # settings as the page stores them: the first player's folder (no players: the profile folder itself)
+          prof=$(find "$GAME" -maxdepth 3 -name nickname.txt -printf '%h\n' | head -n1)
+          [ -n "$prof" ] || prof="$GAME/profile"
+          mkdir -p "$prof/mod-settings"
+          printf 'box=0\ncorner=right\ngreeting=Hello\nnames=Bia,Rafa,Luz\n' > "$prof/mod-settings/example-plugin.ini"
+          shot options-stored MKW_LAUNCHER_SHOT=90:mods MKW_LAUNCHER_MOD_PAGE=example-plugin MKW_MENU_LANG=en
+          ls -la shots
+          echo "--- log"; find "$GAME" -name 'mkw*.log' -exec tail -n 40 {} \; 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mod-page-shots
+          path: shots/
+          retention-days: 14
+          if-no-files-found: warn
