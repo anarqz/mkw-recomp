@@ -87,6 +87,8 @@ static int api_on_exit(void (*cb)(void *user), void *user) {
     return 1;
 }
 
+static char profile_name[PLAYER_NAME_BYTES];   // the player playing (player_name of rt_config()->profile)
+
 // ---- the mods' tabs in the in-game menu's settings (settings_tabs.cpp draws them through plugins_tab_*)
 enum { MAX_TABS = 8 };
 static struct {
@@ -205,7 +207,6 @@ static int (*const setting_set_slot[MAX_PLUGINS])(const char *, const char *) = 
 #undef S
 _Static_assert(MAX_PLUGINS == 32, "one setting_get / setting_set pair per plugin slot");
 
-static char profile_name[PLAYER_NAME_BYTES];   // the player playing (player_name of rt_config()->profile)
 
 static const MkwPluginApi api_template = {
     .size = sizeof(MkwPluginApi),
