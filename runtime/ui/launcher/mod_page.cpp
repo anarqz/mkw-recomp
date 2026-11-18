@@ -56,7 +56,7 @@ static struct {
     MkwPage page;
     char player_dir[PLAT_PATH_MAX * 2], player_name[96];
     float scale;
-    int disabled;                // disabled(1) calls not yet closed this frame
+    int disabled;                // disabled_begin calls not yet closed this frame
     int in_list, list_rows;
     char list_empty[256];
     Input inputs[MAX_INPUTS];
@@ -111,14 +111,15 @@ static void page_note(int kind, const char *text) {
 static void page_separator(void) { ImGui::Separator(); }
 static void page_same_line(void) { ImGui::SameLine(); }
 
-static void page_disabled(int on) {
-    if (on) {
-        ImGui::BeginDisabled(true);
-        G.disabled++;
-    } else if (G.disabled) {
-        ImGui::EndDisabled();
-        G.disabled--;
-    }
+static void page_disabled_begin(int disabled) {
+    ImGui::BeginDisabled(disabled != 0);   // nested: disabled while any enclosing section is
+    G.disabled++;
+}
+
+static void page_disabled_end(void) {
+    if (!G.disabled) return;   // an end without its begin: ignored
+    ImGui::EndDisabled();
+    G.disabled--;
 }
 
 static void page_busy(const char *text) {
@@ -344,7 +345,8 @@ extern "C" void mod_page_draw(float scale) {
     p->note = page_note;
     p->separator = page_separator;
     p->same_line = page_same_line;
-    p->disabled = page_disabled;
+    p->disabled_begin = page_disabled_begin;
+    p->disabled_end = page_disabled_end;
     p->busy = page_busy;
     p->checkbox = page_checkbox;
     p->input = page_input;
@@ -359,7 +361,7 @@ extern "C" void mod_page_draw(float scale) {
     G.fn(p);
     // whatever the plugin left open closes here, so one page's mistake cannot break the start screen's frame
     if (G.in_list) page_list_end();
-    while (G.disabled) page_disabled(0);
+    while (G.disabled) page_disabled_end();
     ImGui::PopTextWrapPos();
     ImGui::PopID();
 }

@@ -244,6 +244,12 @@ void plugins_load(void) {
         if (fits) memcpy(t, s, n), t[n] = 0;
         s = next;
         if (!fits) continue;
+        int seen = 0;   // a mod listed twice (MKW_MODS set by hand) loads once
+        for (int i = 0; i < nplugins; i++) seen |= !strcmp(plugins[i].mod_name, t);
+        if (seen) {
+            rt_log("plugin: %s is listed twice in MKW_MODS: loaded once", t);
+            continue;
+        }
         Plugin p = {0};
         snprintf(p.mod_name, sizeof p.mod_name, "%s", t);
         snprintf(p.mod_dir, sizeof p.mod_dir, "%s/mods/%s", cfg_game_dir(), t);

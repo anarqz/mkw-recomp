@@ -182,7 +182,10 @@ typedef struct MkwPage {
     void (*note)(int kind, const char *text);     // wrapped, coloured by kind (MKW_NOTE_*)
     void (*separator)(void);
     void (*same_line)(void);                      // the next widget on this line
-    void (*disabled)(int on);                     // the widgets after it greyed out and inert until disabled(0)
+    // The widgets between the two greyed out and inert when disabled is non-zero, as they are otherwise. Always
+    // paired (a disabled_begin(0) too), and nested sections stay disabled when an outer one is.
+    void (*disabled_begin)(int disabled);
+    void (*disabled_end)(void);
     void (*busy)(const char *text);               // a spinner and text: work in progress
 
     // ---- widgets bound to a setting: they show its value and store the player's change themselves (setting_set);

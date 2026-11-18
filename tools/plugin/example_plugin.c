@@ -93,11 +93,11 @@ MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p) {
     p->checkbox("box", t[T_BOX], 1);
     char v[8];
     int box = !p->setting_get("box", v, sizeof v) || !strcmp(v, "1");
-    p->disabled(!box);
+    p->disabled_begin(!box);
     static const char *const corners[] = {"left", "right"};
     const char *const labels[] = {t[T_LEFT], t[T_RIGHT]};
     p->choice("corner", t[T_CORNER], corners, labels, 2);
-    p->disabled(0);
+    p->disabled_end();
     p->input("greeting", t[T_GREETING], t[T_GREETING_HINT], 100, 0);
 
     p->heading(t[T_NAMES]);
@@ -112,9 +112,9 @@ MKW_PLUGIN_EXPORT void mkw_mod_page(const MkwPage *p) {
     p->input("new_name", t[T_NEW_NAME], "", NAME_CAP - 1, 0);
     char add[NAME_CAP] = "";
     p->setting_get("new_name", add, sizeof add);
-    p->disabled(!add[0] || strchr(add, ',') || n == MAX_NAMES);
+    p->disabled_begin(!add[0] || strchr(add, ',') || n == MAX_NAMES);
     int pressed = p->button(t[T_ADD]);
-    p->disabled(0);
+    p->disabled_end();
     if (n == MAX_NAMES) p->note(MKW_NOTE_WARN, t[T_FULL]);
     if (pressed && add[0] && n < MAX_NAMES) {
         snprintf(names[n++], NAME_CAP, "%s", add);
