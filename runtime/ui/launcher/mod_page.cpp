@@ -21,9 +21,9 @@
 #include "mod_settings.h"
 #include "platform/platform.h"
 #include "ui_text.h"
-#include "version.h"
 
 extern "C" void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+extern const char rt_port_version[];
 
 #ifdef _WIN32
 #define PLUGIN_EXT ".dll"
@@ -43,6 +43,7 @@ static int nlibs;
 typedef struct {
     char key[MOD_SETTING_KEY_MAX + 1];
     char buf[INPUT_CAP];
+    int editing;   // the field had the keyboard in the last frame: its text is the player's, not the setting's
 } Input;
 
 static struct {
@@ -142,6 +143,7 @@ static Input *input_of(const char *key) {
     Input *in = &G.inputs[G.ninputs++];
     snprintf(in->key, sizeof in->key, "%s", key);
     in->buf[0] = 0;
+    in->editing = 0;
     return in;
 }
 
@@ -156,8 +158,7 @@ static int page_input(const char *key, const char *label, const char *hint, int 
     }
     if (max_bytes <= 0 || max_bytes > INPUT_CAP - 1) max_bytes = INPUT_CAP - 1;
     ImGui::PushID(key);
-    ImGuiID id = ImGui::GetID("##field");
-    if (ImGui::GetActiveID() != id) {   // not being edited: show the stored value (a thread may have changed it)
+    if (!in->editing) {   // not being edited: show the stored value (a thread may have changed it)
         if (!page_setting_get(key, in->buf, sizeof in->buf)) in->buf[0] = 0;
     }
     if (label && *label) ImGui::TextUnformatted(label);
@@ -167,6 +168,7 @@ static int page_input(const char *key, const char *label, const char *hint, int 
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##field", hint ? hint : "", in->buf, (size_t)max_bytes + 1, f,
                              (flags & MKW_INPUT_DIGITS) ? digits_only : nullptr);
+    in->editing = ImGui::IsItemActive();
     int changed = 0;
     if (ImGui::IsItemDeactivatedAfterEdit()) {   // Enter, a click away, the cursor moving on
         changed = 1;
