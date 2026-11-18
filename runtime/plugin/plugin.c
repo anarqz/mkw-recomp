@@ -10,6 +10,7 @@
 
 #include "cfg.h"
 #include "dispatch.h"
+#include "plugin_dispatch.h"
 #include "host.h"
 #include "mkw_plugin.h"
 #include "plugin.h"
