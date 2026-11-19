@@ -1,4 +1,4 @@
-name: MKWMP on plugin API v1-v2
+name: MKWMP camera on plugin API v3
 
 # Fork only, test builds (never a release): mkw-recomp's main, with its native plugin API version 1, built for Windows
 # as its release workflow builds it (mkw.exe, the setup tools, the zip), and MKWMP (github.com/anarqz/mkwmp, branch
@@ -7,12 +7,12 @@ name: MKWMP on plugin API v1-v2
 # into <game>/mods/ and run `mkw --play --mod mkwmp` (or enable it on the Mods page).
 on:
   push:
-    branches: [mkwmp-v1]
+    branches: [mkwmp-camera]
   workflow_dispatch:
     inputs:
       mkwmp_ref:
         description: MKWMP branch or commit to build
-        default: plugin-seat
+        default: plugin-camera
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MKWMP_REF: ${{ inputs.mkwmp_ref || 'plugin-seat' }}
+  MKWMP_REF: ${{ inputs.mkwmp_ref || 'plugin-camera' }}
 
 jobs:
   windows:
