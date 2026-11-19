@@ -775,6 +775,23 @@ def test_keys_ignore_files_the_package_does_not_ship(tmp_path: Path, monkeypatch
     assert shaderstep.shipped(files) == [tmp_path / "a.py"]
 
 
+def test_shipped_follows_the_appimage_setup_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # #632: the AppImage's setup/ is a symlink into its mount and ROOT is resolved; a file named through the symlink
+    # (prepare.py run as <game>/setup/src/tools/prepare/prepare.py) stopped the setup at check with a ValueError
+    import shaderstep  # noqa: PLC0415
+
+    mount = tmp_path / "mount/setup/src"
+    mount.mkdir(parents=True)
+    (mount / "a.py").write_text("x")
+    (mount / "FILES").write_text("a.py\n")
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game/setup").symlink_to(tmp_path / "mount/setup")
+    monkeypatch.setattr(shaderstep, "ROOT", mount.resolve())
+    monkeypatch.setattr(shaderstep, "SHIPPED", mount / "FILES")
+    via_link = tmp_path / "game/setup/src/a.py"
+    assert shaderstep.shipped([via_link]) == [via_link]
+
+
 @pytest.mark.parametrize("version,index,runs", [(3, True, []), (2, True, ["pipeline_pairs.py"]),
                                                 (2, False, ["extract.py", "pipeline_pairs.py"])])  # fmt: skip
 def test_ensure_pairs(tmp_path: Path, monkeypatch, version: int, index: bool, runs: list[str]) -> None:
