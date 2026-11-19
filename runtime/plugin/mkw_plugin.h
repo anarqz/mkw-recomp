@@ -202,7 +202,8 @@ typedef struct MkwPage {
     void (*busy)(const char *text);               // a spinner and text: work in progress
 
     // ---- widgets bound to a setting: they show its value and store the player's change themselves (setting_set);
-    // each returns 1 in the frame the value changed. key is also the widget's identity on the page.
+    // Each returns 1 only in the frame an edit is saved, or 0 when there is no edit or the save fails.
+    // The page shows a failed save. key is also the widget's identity on the page.
     int (*checkbox)(const char *key, const char *label, int default_on);   // stores "1" / "0"
     // A one-line field; hint shows while it is empty. Stored when the player leaves the field (Enter, a click away,
     // the controller moving on), not at each key. max_bytes: of the value, at most 255.

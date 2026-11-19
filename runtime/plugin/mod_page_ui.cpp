@@ -103,14 +103,24 @@ static void page_busy(const char *text) {
 }
 
 // ---- widgets bound to a setting
+static int save_widget_setting(const char *key, const char *value) {
+    if (page_setting_set(key, value)) {
+        if (!strcmp(U->failed_setting, key)) U->failed_setting[0] = 0;
+        return 1;
+    }
+    snprintf(U->failed_setting, sizeof U->failed_setting, "%s", key);
+    page_log("setting %s not stored", key);
+    return 0;
+}
+
 static int page_checkbox(const char *key, const char *label, int default_on) {
+    if (!mod_settings_key_ok(key)) return 0;
     char v[8];
     bool on = page_setting_get(key, v, sizeof v) ? !strcmp(v, "1") : default_on != 0;
     ImGui::PushID(key);
     bool changed = ImGui::Checkbox(label ? label : key, &on);
     ImGui::PopID();
-    if (changed && !page_setting_set(key, on ? "1" : "0")) page_log("setting %s not stored", key);
-    return changed;
+    return changed && save_widget_setting(key, on ? "1" : "0");
 }
 
 static decltype(&U->inputs[0]) input_of(const char *key) {
@@ -147,17 +157,15 @@ static int page_input(const char *key, const char *label, const char *hint, int 
                              (flags & MKW_INPUT_DIGITS) ? digits_only : nullptr);
     in->editing = ImGui::IsItemActive();
     int changed = 0;
-    if (ImGui::IsItemDeactivatedAfterEdit()) {   // Enter, a click away, the cursor moving on
-        changed = 1;
-        if (!page_setting_set(key, in->buf[0] ? in->buf : nullptr)) page_log("setting %s not stored", key);
-    }
+    if (ImGui::IsItemDeactivatedAfterEdit())   // Enter, a click away, the cursor moving on
+        changed = save_widget_setting(key, in->buf[0] ? in->buf : nullptr);
     ImGui::PopID();
     return changed;
 }
 
 static int page_choice(const char *key, const char *label, const char *const *values, const char *const *labels,
                        int n) {
-    if (!values || n <= 0) return 0;
+    if (!mod_settings_key_ok(key) || !values || n <= 0) return 0;
     char v[MOD_SETTING_VALUE_MAX + 1];
     int cur = 0;
     if (page_setting_get(key, v, sizeof v))
@@ -170,10 +178,8 @@ static int page_choice(const char *key, const char *label, const char *const *va
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (ImGui::BeginCombo("##choice", shown(cur))) {
         for (int i = 0; i < n; i++) {
-            if (ImGui::Selectable(shown(i), i == cur) && i != cur && values[i]) {
-                changed = page_setting_set(key, values[i]);
-                if (!changed) page_log("setting %s not stored", key);
-            }
+            if (ImGui::Selectable(shown(i), i == cur) && i != cur && values[i])
+                changed = save_widget_setting(key, values[i]);
             if (i == cur) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
@@ -243,18 +249,29 @@ static void page_list_end(void) {
 
 static int page_slider(const char *key, const char *label, int min, int max, int default_value) {
     if (!mod_settings_key_ok(key) || max <= min) return 0;
+    ImGui::PushID(key);
+    ImGuiID id = ImGui::GetID("##slider");
     char v[16];
-    int value = page_setting_get(key, v, sizeof v) ? atoi(v) : default_value;
+    // ImGui deactivates the slider on release without writing its value again.
+    int value = U->slider_edit_value;
+    if (U->slider_edit_id != id || U->slider_edit_frame != ImGui::GetFrameCount() - 1)
+        value = page_setting_get(key, v, sizeof v) ? atoi(v) : default_value;
     if (value < min) value = min;
     if (value > max) value = max;
-    ImGui::PushID(key);
     if (label && *label) ImGui::TextUnformatted(label);
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::SliderInt("##slider", &value, min, max);
-    int changed = ImGui::IsItemDeactivatedAfterEdit();   // stored when the player lets go, not at each step
-    if (changed) {
+    if (ImGui::IsItemActive()) {
+        U->slider_edit_id = id;
+        U->slider_edit_frame = ImGui::GetFrameCount();
+        U->slider_edit_value = value;
+    } else if (U->slider_edit_id == id) {
+        U->slider_edit_id = 0;
+    }
+    int changed = 0;
+    if (ImGui::IsItemDeactivatedAfterEdit()) {   // stored when the player lets go, not at each step
         snprintf(v, sizeof v, "%d", value);
-        if (!page_setting_set(key, v)) page_log("setting %s not stored", key);
+        changed = save_widget_setting(key, v);
     }
     ImGui::PopID();
     return changed;
@@ -289,6 +306,8 @@ extern "C" void mod_page_ui_draw(ModPageUi *ui, MkwModPage fn, float scale) {
     if (opened) {
         snprintf(ui->shown_for, sizeof ui->shown_for, "%s", ui->player_dir);
         ui->ninputs = 0;
+        ui->failed_setting[0] = 0;
+        ui->slider_edit_id = 0;
         ui->reopen = 0;
     }
     U = ui;
@@ -335,6 +354,7 @@ extern "C" void mod_page_ui_draw(ModPageUi *ui, MkwModPage fn, float scale) {
     if (ui->in_list) page_list_end();
     if (ui->in_columns) page_columns_end();
     while (ui->disabled) page_disabled_end();
+    if (ui->failed_setting[0]) page_note(MKW_NOTE_ERROR, menu_text(UI_MENU_SAVE_FAILED));
     ImGui::PopTextWrapPos();
     ImGui::PopID();
 }

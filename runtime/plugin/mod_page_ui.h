@@ -25,6 +25,10 @@ typedef struct {
     char shown_for[PLAT_PATH_MAX * 2];
     int disabled, in_list, list_rows, in_columns;
     char list_empty[256];
+    char failed_setting[MOD_SETTING_KEY_MAX + 1];
+    unsigned slider_edit_id;
+    int slider_edit_frame;
+    int slider_edit_value;
     struct {
         char key[MOD_SETTING_KEY_MAX + 1];
         char buf[MOD_PAGE_INPUT_CAP];
