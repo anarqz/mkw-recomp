@@ -10,8 +10,10 @@
 typedef struct { const char *name; uint64_t entries; } RtInitCount;
 
 // A sequence node class whose start tells race_scene.c where the game is: its name getter's vtable slot (main offset,
-// build/seq_nodes*.tsv) and what its start means
-enum { RT_RACE_ARM = 1, RT_RACE_START, RT_RACE_LEAVE, RT_RACE_FREE_ARM, RT_RACE_CHAT };
+// build/seq_nodes*.tsv) and what its start means; RT_RACE_TT_* over it: time trial begins or ends there (MKW_LOGIC_HZ
+// back to 60, game.c)
+enum { RT_RACE_ARM = 1, RT_RACE_START, RT_RACE_LEAVE, RT_RACE_FREE_ARM, RT_RACE_CHAT, RT_RACE_ROLE = 0xf };
+enum { RT_RACE_TT_ON = 0x10, RT_RACE_TT_OFF = 0x20 };
 typedef struct { const char *name; uint64_t name_slot; int role; } RtRaceEvent;
 #define RT_RACE_EVENTS 16
 #define RT_RACE_HOST 0xe00   // patch page offset of race_scene.c's first host function, one every 0x10 (patches.c)

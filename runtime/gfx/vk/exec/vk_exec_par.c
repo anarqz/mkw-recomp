@@ -12,7 +12,8 @@
 // - Texture uploads were already per submission (one check per submission against its start's snapshot of written
 //   pages, make_fresh_snap): all of them before the first chunk is what the serial replay does for its first part.
 // - What a draw reads of earlier ops' effects stays in order: the replay state (the walk's copies), the inline uniform
-//   updates (the walk lists them; vk_exec_draw_upd_seed), the GPU-written ranges (note_written, per command buffer).
+//   updates (the walk lists them; vk_exec_draw_upd_seed), the GPU-written ranges (note_written, per command buffer;
+//   each reported at the fence by one thread only, vk_exec_written.c).
 // - Conditional rendering is a CPU-side decision at record time (vk_exec_xfer.c): the walk decides each condition in op
 //   order, with the submission's own earlier reports as pending, and the chunks use its decisions (a race frame has one).
 // - Kept serial: samples-passed counters (queries and their completion order; none in a race, walk1), and every
@@ -732,6 +733,7 @@ int vk_exec_par(VkExec *ex, const uint64_t *handles, int n, int diag) {
     if (vk_exec_oq_busy()) return P.n_serial[WHY_BUSY]++, 0;
     uint64_t t0 = kern_now_ns();
     P.handles = handles, P.n = n, P.fence = ex->fence, P.ex = ex, P.sent = 0, P.avail = 0, P.qleft = 0;
+    vk_exec_written_share(ex);   // before the head: the chunk threads and this one note at the same fence
     // MKW_REPLAY_PAR_PIPE: chunks handed out from the walk (publish) once prescan rules out an op it could not leave;
     // the diagnoses that pick the chunks' order need them all first
     P.pipe_now = RT_KNOB_ON(P.pipe) && !P.reverse && !P.norder;

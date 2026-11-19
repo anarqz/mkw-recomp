@@ -555,6 +555,18 @@ void plat_process_memory(uint64_t *resident, uint64_t *private_bytes) {
 
 void plat_heap_trim(void) { malloc_trim(0); }
 
+// glibc 2.33's mallinfo2, looked up at run time: the release builds against glibc 2.31 (tools/build/sysroot.py),
+// which has neither the function nor its struct; the layout below is glibc's. Zeros where it is missing.
+typedef struct { size_t arena, ordblks, smblks, hblks, hblkhd, usmblks, fsmblks, uordblks, fordblks, keepcost; } MallInfo2;
+
+void plat_heap_stats(uint64_t *in_use, uint64_t *free_bytes, uint64_t *mapped) {
+    static MallInfo2 (*fn)(void);
+    static int looked;
+    if (!looked) fn = (MallInfo2 (*)(void))dlsym(RTLD_DEFAULT, "mallinfo2"), looked = 1;
+    MallInfo2 m = fn ? fn() : (MallInfo2){0};   // every arena: arena + hblkhd mapped, uordblks in use, fordblks free
+    *in_use = m.uordblks + m.hblkhd, *free_bytes = m.fordblks, *mapped = m.arena + m.hblkhd;
+}
+
 
 // CPU time (user + system) of this process's threads with that name (/proc/self/task/*/comm), summed; -1 when none.
 int64_t plat_threads_cpu_ns_named(const char *name) {

@@ -270,6 +270,11 @@ static void upload(Tex *e) {
     uint64_t dz0 = plat_now_ns();
     if (raw_all >= UP_PAR_MIN) tex_par_for(items, up_deswizzle, &job);
     else for (uint32_t i = 0; i < items; i++) up_deswizzle(&job, i);
+    if (vk_pool_diag_on()) {   // MKW_MEM_POOL_LABELS: read from a CPU_NO_ACCESS pool's game pages?
+        const pool_t *p = nvn_pool_find(e->pub.addr, 1);
+        if (p) vk_pool_diag_note(p->flags, 1, raw_all);
+        if (p && astc) vk_pool_diag_note(p->flags, 3, raw_all);
+    }
     if (rt_trace & RT_TRACE_PERF) {   // MKW_TRACE=perf: the deswizzle's wall time on this thread, split and not
         static volatile int64_t dz_ns[2], dz_bytes[2];
         static volatile int32_t dz_n;

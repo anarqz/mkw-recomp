@@ -38,6 +38,8 @@
 #define FX_VIEW_HOST 0xf20       // patch page offset of host_fx_view (set aspect)
 #define DISPLAY_SIZE_HOST 0xf10  // patch page offset of host_display_size (set display, 1.8.0)
 #define DISPLAY_SET_HOST 0xf00   // patch page offset of host_display_set (set display, 1.8.0)
+#define LOGIC_HZ_HOST 0xde0      // patch page offset of host_logic_step (set logichz)
+#define LOGIC_IV_HOST 0xdd0      // patch page offset of host_logic_copy (set logichz)
 #define PANE_MATRIX_HOST 0xdf0   // patch page offset of host_pane_matrix (set aspect, 1.8.0), below race_scene.c's
                                  // 0xe00-0xef0: race_scene.c, one per node (RT_RACE_HOST)
 // The guest functions the sets call or recognise, per game version (version.h; 1.0.0: main+0x233358 RenderBuffer
@@ -167,6 +169,51 @@ static void host_seed_tick(Cpu *c) {
     if (lr == GUEST_RANDOM_CTOR_LR) lr ^= *(const uint64_t *)(uintptr_t)(c->sp + 8) << 1;
     else if (lr == GUEST_RANDOM_CTOR2_LR) lr ^= *(const uint64_t *)(uintptr_t)c->sp << 1;
     c->x[0] = seed_tick(lr);
+}
+
+// The logichz set where the frame's delegate copies NVN's present interval to the ModuleSystem (1.0.0 main+0x45e790
+// and main+0x261bb80, 1.8.0 main+0x8d388 and main+0x2977b94; str w8, [x19, #0x50c]: x19 the system, w8 the interval
+// in vsync ticks at N Hz, 1 or 2). Every writer of the step record copies [sys+0x50c] whole into it (the per-frame
+// one and the event virtual's three: lhz120tt, the time trial timer ran twice as fast when only the first was
+// corrected), and its consumers take it whole: counters add it, loops run it times, so at N Hz each would run N/60
+// fast. An accumulator hands out whole frames at the 60 Hz rate instead (120 Hz: 0, 1, 0, 1), as the game itself
+// does when it skips one; it already expects less than 1 (main+0x2720ea0 skips its update then). One of the two
+// copies runs per frame (the second is the delegate's body, the first its inlined copy in main+0x45e6c8).
+// N changes on entering or leaving time trial (game.c frame_logic_hz): the remainder restarts with it.
+static uint32_t logic_acc, logic_acc_hz;   // 60 Hz frames owed times N, < N: the game thread alone runs it
+static uint32_t logic_v = 1;               // the last present interval, for host_logic_step
+static void host_logic_copy(Cpu *c) {
+    uint32_t hz = (uint32_t)frame_logic_hz(), v = (uint32_t)c->x[8];
+    if (hz != logic_acc_hz) logic_acc_hz = hz, logic_acc = 0;
+    logic_v = v;
+    logic_acc += 60u * v;
+    *(uint32_t *)(uintptr_t)(c->x[19] + 0x50c) = logic_acc / hz;
+    logic_acc %= hz;
+}
+
+// The logichz set at each writer of the ModuleSystem's step record (1.0.0 main+0x45e7ec and the event virtual
+// main+0x159fe4; x8 the record, [system+0x500]): the step's {seconds, 60 Hz frames} instead of {1/60, 1.0}. They
+// follow the present interval (read by some 50 module functions), at most one 60 Hz frame as on the console: a PC
+// that only keeps up with 60 steps a second (interval 2 at 120 Hz) gets exactly the console's {1/60 s, 1.0, 1}, and
+// one slower than that slows down as the console does.
+static void host_logic_step(Cpu *c) {
+    float *rec = (float *)(uintptr_t)c->x[8];
+    uint32_t hz = (uint32_t)frame_logic_hz(), v = logic_v;
+    float frames = v * 60u >= hz ? 1.0f : (float)(v * 60u) / (float)hz;
+    rec[0] = frames / 60.0f;
+    rec[1] = frames;
+}
+
+static void logic_hz_set(const RtGame *g) {
+    for (int i = 0; i < g->npatch_sets; i++)
+        if (!strcmp(g->patch_sets[i].name, "logichz")) {
+            g->patch_on[i] = frame_logic_hz() != 60;
+            if (frame_logic_hz() != 60) rt_log("game: logic at %d Hz (MKW_LOGIC_HZ, set logichz on)", frame_logic_hz());
+            return;
+        }
+    if (frame_logic_hz() != 60) rt_log("game: MKW_LOGIC_HZ=%d needs the logichz set, not in this game code: 60 Hz",
+                                       frame_logic_hz());
+    frame_logic_hz_60();
 }
 
 static void seed_set(const RtGame *g) {
@@ -1126,7 +1173,10 @@ static void output_size(const RtGame *g) {
 
 void rt_patches_init(void) {
     const RtGame *g = rt_game();
-    if (!g->npatch_sets) return;
+    if (!g->npatch_sets) {
+        logic_hz_set(g);   // no sets: MKW_LOGIC_HZ back to 60
+        return;
+    }
     if (!plat_mem_commit(g->patch_page, 0x1000))
         rt_fatal("patches: cannot commit the patch page at %#llx", (unsigned long long)g->patch_page);
     char list[512];
@@ -1145,6 +1195,7 @@ void rt_patches_init(void) {
     output_size(g);
     shadow_set(g);
     seed_set(g);
+    logic_hz_set(g);
     frame_rate_init(g->patch_page);
 }
 
@@ -1190,6 +1241,8 @@ void rt_patch_hosts(void) {
     if (g->npatch_sets) rt_register_host(g->patch_page + DISPLAY_SIZE_HOST, host_display_size);
     if (g->npatch_sets) rt_register_host(g->patch_page + DISPLAY_SET_HOST, host_display_set);
     if (g->npatch_sets) rt_register_host(g->patch_page + PANE_MATRIX_HOST, host_pane_matrix);
+    if (g->npatch_sets) rt_register_host(g->patch_page + LOGIC_HZ_HOST, host_logic_step);
+    if (g->npatch_sets) rt_register_host(g->patch_page + LOGIC_IV_HOST, host_logic_copy);
     if (g->npatch_sets) frame_rate_host(g->patch_page);
     if (g->npatch_sets) race_scene_host(g->patch_page);
     if (g->npatch_sets) rt_register_host(g->patch_page + CAMERA_EVENT_HOST, host_camera_event);

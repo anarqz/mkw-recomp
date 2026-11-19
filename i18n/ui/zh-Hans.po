@@ -450,6 +450,17 @@ msgctxt "UI_MENU_FPS_AUTO"
 msgid "Automatic"
 msgstr "自动"
 
+msgctxt "UI_MENU_LOGIC_HZ"
+msgid "Logic rate"
+msgstr "逻辑频率"
+
+msgctxt "UI_MENU_LOGIC_HZ_DESC"
+msgid ""
+"How many times a second the game updates karts, physics and timers. 60 is the console's rate; "
+"120, 144 or 240 make movement smoother on a high refresh rate screen but need a faster PC. Time "
+"trials and LAN games always run at 60."
+msgstr "游戏每秒更新卡丁车、物理和计时器的次数。60 与主机相同；120、144 或 240 在高刷新率屏幕上让动作更流畅，但需要更快的电脑。计时赛和局域网游戏始终以 60 运行。"
+
 msgctxt "UI_MENU_FRAMEGEN"
 msgid "Frame generation"
 msgstr "帧生成"

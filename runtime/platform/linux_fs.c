@@ -236,6 +236,17 @@ int64_t plat_file_pread(PlatFile *f, void *buf, uint32_t n, uint64_t off) {
     return k >= 0 ? k : errno == EFAULT ? -2 : -1;
 }
 
+PlatFile *plat_file_scratch(const char *dir) {
+    int fd = open(dir, O_RDWR | O_TMPFILE | O_CLOEXEC, 0600);
+    if (fd < 0) {   // a file system without O_TMPFILE: a name of our own, removed at once
+        char p[4096];
+        snprintf(p, sizeof p, "%s/.mkw-scratch-%d", dir, (int)getpid());
+        fd = open(p, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (fd >= 0) unlink(p);
+    }
+    return fd < 0 ? NULL : (PlatFile *)(intptr_t)(fd + 1);
+}
+
 int plat_file_id(PlatFile *f, PlatFileId *out) {
     struct stat st;
     if (fstat(fd_of(f), &st)) return 0;

@@ -10,14 +10,15 @@
 #include "platform/platform.h"
 
 #define MAX_PASSES 400
-#define PNG_CAP (2ull << 30)
-#define INFLIGHT_CAP (1ull << 30)   // host buffers waiting for their submission
+#define PNG_CAP (2ull << 30)        // MKW_DUMP_PNG_MIB raises it
+#define INFLIGHT_CAP (1ull << 30)   // host buffers waiting for their submission (MKW_DUMP_INFLIGHT_MIB raises it)
 
 // vk_dump.c
 extern uint64_t dump_frame;
 extern char dump_dir[400];
 extern FILE *images_f;
 extern volatile int64_t png_bytes, inflight;
+extern uint64_t inflight_cap, png_cap;   // INFLIGHT_CAP and PNG_CAP, or MKW_DUMP_INFLIGHT_MIB and MKW_DUMP_PNG_MIB
 extern PlatMutex img_lock;
 extern PlatMutex rec_lock;   // the recording side: passes.txt and the per-pass state
 extern FILE *passes_f;

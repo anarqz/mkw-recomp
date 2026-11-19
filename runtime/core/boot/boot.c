@@ -182,6 +182,13 @@ void rt_write_png(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h)
     // A diagnostic picture (ctl shot, dump, replay) to a missing folder only loses that picture, not the run
     // (wi425c, 17/11/2026: a shot into a deleted folder ended a 2-minute run)
     FILE *f = fopen(path, "wb");
+    if (!f) {   // a shot into a folder that does not exist yet (MKW_SEQ_CTL shot build/run/NAME/...): it makes it
+        char dir[1024];
+        snprintf(dir, sizeof dir, "%s", path);
+        char *s = strrchr(dir, '/'), *bs = strrchr(dir, '\\');
+        if (bs > s) s = bs;
+        if (s && s != dir) *s = 0, plat_file_mkdir_p(dir), f = fopen(path, "wb");
+    }
     if (!f) {
         rt_log("png: cannot write %s", path);
         free(z), free(raw);
