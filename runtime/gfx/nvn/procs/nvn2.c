@@ -510,10 +510,22 @@ uint32_t nvn2_native_image_create(int w, int h, void **pixels, int *row_bytes) {
     return PIMG_HANDLE | (uint32_t)i;
 }
 
+// nvn_api_obj.c's nvnTextureInitialize (diagnosis): which plugin image a texture's pool is, -1 when none. The game may
+// build textures of its own over a native image's pool (nvnTextureGetMemoryPool): those are logged.
+int nvn2_native_image_of_pool(const pool_t *pool) {
+    if (!pool) return -1;
+    for (int i = 0; i < PIMG_MAX && i < npimg; i++)
+        if (pool == &pimg[i].pool) return i;
+    return -1;
+}
+
+static volatile int32_t ntouch_logged;
 int nvn2_native_image_touch(uint32_t handle) {
     pimage_t *o = pimg_of(handle);
     if (!o) return 0;
     nvn_guest_written((uint64_t)(uintptr_t)o->mem, (uint64_t)o->stride * (uint64_t)o->h);
+    if (plat_inc32(&ntouch_logged) <= 16)   // the first ones: the first pixel the GPU should now see
+        rt_log("nvn2: native image %d touched, pixel 0 %08x", (int)(o - pimg), *(const uint32_t *)o->mem);
     return 1;
 }
 
@@ -557,6 +569,9 @@ static void nimg_texture(Cpu *c) {
     uint64_t x1 = c->x[1];
     c->x[1] = (uint64_t)(uintptr_t)&b;
     nvnp_nvnTextureInitialize(c);   // ret_x: 1
+    if (p)
+        rt_log("nvn2: native image %d: texture %p over pool %p, storage %p, stride %u", (int)(p - pimg), arg_p(c, 0),
+               (void *)&p->pool, (void *)p->mem, p->stride);
     c->x[1] = x1;
 }
 HOST_OVERRIDE("_Z32nvnNativeImageBuilderSetDefaultsP21NVNnativeImageBuilder", nimg_defaults);

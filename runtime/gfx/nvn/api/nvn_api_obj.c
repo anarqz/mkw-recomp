@@ -188,6 +188,7 @@ static void tex_release(tex_t *o) {
 }
 
 // NVNboolean nvnTextureInitialize(NVNtexture *t, const NVNtextureBuilder *b)
+int nvn2_native_image_of_pool(const pool_t *pool);   // procs/nvn2.c
 NVN_API(nvnTextureInitialize) {
     tex_t *o = arg_p(c, 0);
     const tex_builder_t *s = arg_p(c, 1);
@@ -215,6 +216,13 @@ NVN_API(nvnTextureInitialize) {
     live_put(o);
     NVN_LOG("Texture %p %ux%ux%u lv%u fmt=%#x tgt=%d flags=%#x size=%#llx", (void *)o, o->d.width, o->d.height,
             o->d.depth, o->d.levels, o->d.format, o->d.target, o->d.flags, (unsigned long long)o->L.size);
+    {   // a texture over a plugin's native image pool (nvn2.c): the game's own ones as well as nvn2.c's
+        int img = nvn2_native_image_of_pool(o->pool);
+        if (img >= 0)
+            rt_log("nvn: texture %p over native image %d's pool: %ux%u fmt %#x flags %#x off %#llx stride %u lr %#llx",
+                   (void *)o, img, o->d.width, o->d.height, o->d.format, o->d.flags, (unsigned long long)o->off,
+                   o->d.stride, (unsigned long long)c->x[30]);
+    }
     // MKW_TRACE_SHADOW_SIZE=1: the guest call chain that creates the cascaded shadow
     // map (D16, 3 layers; 3072 docked, 2048 handheld), to find where the game picks its size.
     if (o->d.format == 0x32 && o->d.depth == 3 && o->d.width >= 1024 && cfg_get("MKW_TRACE_SHADOW_SIZE")) {
