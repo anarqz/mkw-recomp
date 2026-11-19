@@ -442,3 +442,36 @@ void kern_sched_report(uint64_t frame) {
                    rw[k][j].st == S_HOST ? "exe+" : "", (unsigned long long)rw[k][j].obj, by, 100.0 * rw[k][j].ns / span);
         }
 }
+
+// ctl `threads` (any thread, no lock: a snapshot for a hung run, where every guest thread sleeps and ptrace is not
+// allowed): each guest thread's wait (kind, address or key, object) and its guest return addresses from lr and the
+// frame-pointer chain, main+off for main. lhz120tt2 (19/11/2026): the race stopped at frame 1097 with every thread in
+// a futex and nothing said where.
+void kern_dump_threads(void) {
+    static const char *const wk[] = {"run", "lock", "condvar", "address", "sync"};
+    const uint64_t main_base = 0x7000000000ull, main_end = main_base + 0x10000000ull;
+    for (RtThread *t = __atomic_load_n(&g_all, __ATOMIC_ACQUIRE); t; t = t->all) {
+        Cpu *c = t->cur ? t->cur : t->cpu;
+        char bt[256];
+        int n = 0;
+        uint64_t ra[9];
+        int k = 0;
+        ra[k++] = c->x[30];
+        uint64_t fp = c->x[29];
+        for (; k < 9 && fp && !(fp & 7) && t->stack_top && fp < t->stack_top && fp + 0x1000000 > t->stack_top; k++) {
+            ra[k] = ((const uint64_t *)(uintptr_t)fp)[1];
+            uint64_t up = ((const uint64_t *)(uintptr_t)fp)[0];
+            if (up <= fp) { k++; break; }
+            fp = up;
+        }
+        for (int i = 0; i < k && n < (int)sizeof bt - 32; i++)
+            n += ra[i] >= main_base && ra[i] < main_end
+                     ? snprintf(bt + n, sizeof bt - n, " main+%#llx", (unsigned long long)(ra[i] - main_base))
+                     : snprintf(bt + n, sizeof bt - n, " %#llx", (unsigned long long)ra[i]);
+        int w = t->wkind;
+        rt_log("threads: h %#x prio %d core %d %s host %d addr %#llx key %#llx obj %#llx svc %#x exited %d; lr/fp:%s",
+               t->handle, t->prio, t->cur_core, w >= 0 && w < 5 ? wk[w] : "?",
+               __atomic_load_n(&t->host_depth, __ATOMIC_RELAXED), (unsigned long long)t->waddr,
+               (unsigned long long)t->wkey, (unsigned long long)t->wobj, t->dg_svc, t->exited, n ? bt : "");
+    }
+}

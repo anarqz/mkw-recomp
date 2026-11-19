@@ -7,6 +7,7 @@
 // Objects are stored in place in the NVN object memory the game provides (nvn_obj.h); every argument is read from the
 // AAPCS64 registers (host.h arg_x / arg_p) and every result returned with ret_x.
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -280,7 +281,8 @@ static void *own_storage_take(uint64_t size) {
             own_storage[i].used = 1, m = own_storage[i].mem;
     for (int i = 0; i < 4 && !m; i++)
         if (!own_storage[i].mem && (m = plat_mem_alloc((size_t)size)))
-            own_storage[i].mem = m, own_storage[i].size = size, own_storage[i].used = 1;
+            own_storage[i].mem = m, own_storage[i].size = size, own_storage[i].used = 1,
+            plat_mem_name(m, (size_t)size, "mkw nvn own storage");
     plat_mutex_unlock(&pool_lock);
     return m;
 }
@@ -290,6 +292,33 @@ static void own_storage_give_back(const void *mem) {
     for (int i = 0; i < 4; i++)
         if (own_storage[i].mem == mem) own_storage[i].used = 0;
     plat_mutex_unlock(&pool_lock);
+}
+
+// MKW_MEM_POOL_LABELS=1 (diagnosis): the game's storage of each pool is labelled with its flags ("[anon:mkw pool
+// 0x24]") while the pool lives, so tools/run/memwatch.py tells how much of the game's resident memory each kind of
+// pool holds (CPU_NO_ACCESS storage the game never touches, data the GPU already has a copy of). A CPU_NO_ACCESS
+// pool's storage in RAM is logged when it is set up and when it goes: in RAM at setup, the game had used that memory
+// before; gained in between, something touched it while the pool lived. Off by default: a label takes the process's
+// map lock, thousands of times while a course loads.
+static void pool_label(const pool_t *o, int live) {
+    static int on = -1;
+    if (on < 0) {
+        const char *e = cfg_get("MKW_MEM_POOL_LABELS");
+        on = e && *e && *e != '0';
+    }
+    if (!on || !o->game_mem || ((uintptr_t)o->game_mem & 0xfff)) return;
+    char name[40];
+    snprintf(name, sizeof name, live ? "mkw pool %#x" : "mkw guest pool freed", o->flags);
+    plat_mem_name(o->game_mem, (size_t)o->size, name);
+    if (!(o->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) return;
+    // At setup, how many of those pages hold only zeros: dropping those loses nothing.
+    static const uint8_t zero[4096];
+    int64_t zeros = 0;
+    for (uint64_t off = 0; live && off + 4096 <= o->size; off += 4096)
+        if (plat_mem_resident(o->game_mem + off, 4096) == 4096 && !memcmp(o->game_mem + off, zero, 4096)) zeros += 4;
+    rt_log("mem: pool %p+%#llx flags %#x %s: %lld KiB of its storage in RAM, %lld KiB of it zeros", (void *)o->game_mem,
+           (unsigned long long)o->size, o->flags, live ? "set up" : "finalized",
+           (long long)plat_mem_resident(o->game_mem, (size_t)o->size) / 1024, (long long)zeros);
 }
 
 // NVNboolean nvnMemoryPoolInitialize(NVNmemoryPool *p, const NVNmemoryPoolBuilder *b)
@@ -321,6 +350,7 @@ NVN_API(nvnMemoryPoolInitialize) {
         ok = 0;
     }
     if (ok && pool_gpu_visible(o)) index_add(o);
+    if (ok) pool_label(o, 1);
     if (!ok) {
         if (nvn_gpu_only((uintptr_t)o->mem)) gva_free((uintptr_t)o->mem);
         o->magic = 0;
@@ -335,6 +365,7 @@ NVN_API(nvnMemoryPoolFinalize) {
     pool_t *o = arg_p(c, 0);
     if (o->magic != NVN_POOL_MAGIC) return;
     if (pool_gpu_visible(o)) index_del(o);
+    pool_label(o, 0);
     gfx_backend()->pool_fini(o);
     if (nvn_gpu_only((uintptr_t)o->mem)) gva_free((uintptr_t)o->mem);
     if (!o->game_mem) own_storage_give_back(o->mem);

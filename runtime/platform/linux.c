@@ -464,6 +464,7 @@ PlatFiber *plat_fiber_new(size_t stack, void (*fn)(void *arg), void *arg) {
         return NULL;
     }
     mprotect(m, 4096, PROT_NONE);
+    plat_mem_name(m, stack, "mkw fiber stack");
     f->stack = m, f->size = stack;
     uint64_t *top = (uint64_t *)(((uintptr_t)m + stack) & ~(uintptr_t)15);
 #if defined(__aarch64__)

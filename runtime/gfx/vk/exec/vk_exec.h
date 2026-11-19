@@ -247,6 +247,7 @@ int vk_exec_queue_swap(VkExecQueues *t, VkExec *ex, uint64_t id);
 // serially itself (a serial head that the rest of the submission did not follow in chunks); 0: walk as usual. diag: a
 // diagnosis that times ops or passes is on (chunks stay off). vk_exec_par_log: the perf line (MKW_TRACE=perf).
 int vk_exec_par(VkExec *ex, const uint64_t *handles, int n, int diag);
+void vk_exec_written_share(VkExec *ex);   // vk_exec_cb.c: its chunks report each GPU-written range once (vk_exec_written.c)
 void vk_exec_par_log(void);
 void vk_exec_draw_probe_log(void);   // MKW_DRAW_CACHE_PROBE (vk_exec_dcache.c)
 void vk_exec_draw_cache_log(void);   // MKW_DRAW_CACHE (vk_exec_dcache.c)

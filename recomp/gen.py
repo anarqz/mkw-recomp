@@ -774,7 +774,7 @@ def main():
     elif (args.exefs.parent / 'mods').is_dir():
         patches.load_mods(table, args.exefs.parent / 'mods', bases)
     image = patches.load_image(table, args.image) if args.image else {}
-    write_if_changed(args.out / 'patches.h', patches.header_text(table, GENERATED_MARKER))
+    write_if_changed(args.out / 'patches.h', patches.header_text(table, GENERATED_MARKER, args.patches))
     want = args.modules.split(',') if args.modules else [n for n, _, _ in mods]
     unknown = set(want) - {n for n, _, _ in mods}
     if unknown:

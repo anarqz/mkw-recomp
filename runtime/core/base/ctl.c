@@ -11,8 +11,11 @@
 //   tex ADDR             textures whose storage or pool-bound Vulkan image covers ADDR (0: every image larger than its storage)
 //   mem ADDR SIZE PATH   SIZE bytes of guest memory at ADDR to PATH (what a CPU-written texture holds)
 //   frame                the present count
+//   threads              each guest thread's wait and guest return addresses (kernel_diag.c), for a hung run
 //   trim [MiB]           frees that much (1024) as an allocation failure would: released textures, idle mirrored ones
 //                        (vk_mem_relieve), with the vram line before and after
+//   heap                 the C heap (in use, free, mapped) and the process's resident memory, then the same after
+//                        plat_heap_trim: how much of the runtime's and the driver's malloc is free space kept
 //   vram                 the "mem: vram" line now: what holds device-local memory (vk_mem_log.c, MKW_VRAM_LOG)
 //   focus 0|1            the window lost (0) or took (1) the focus, as the window system reports it
 //   seq                  the game's active sequence nodes (MKW_SEQ_WATCH, seqwatch.c)
@@ -63,6 +66,8 @@ void ctl_run(char *line) {
         snprintf(d, sizeof d, "%s", arg);
         rt_log(vk_dump_rearm(d, ubo, luts, logn) ? "ctl: dump %s queued at frame %llu" : "ctl: dump %s refused: one is pending (frame %llu)",
                d, (unsigned long long)frame);
+    } else if (!strcmp(cmd, "threads")) {
+        kern_dump_threads();
     } else if (!strcmp(cmd, "flight")) {
         if (!flight_on) rt_log("ctl: flight refused: MKW_FLIGHT is off");
         else flight_request(), rt_log("ctl: flight queued at frame %llu", (unsigned long long)frame);
@@ -108,6 +113,18 @@ void ctl_run(char *line) {
         vk_mem_relieve(mib << 20, "ctl trim");
         vram_log_now();
         rt_log("ctl: trim %llu MiB at frame %llu", (unsigned long long)mib, (unsigned long long)frame);
+    } else if (!strcmp(cmd, "heap")) {
+        for (int i = 0; i < 2; i++) {
+            uint64_t use, fr, map, res, prv, t0 = plat_now_ns();
+            if (i) plat_heap_trim();
+            uint64_t took = plat_now_ns() - t0;
+            plat_heap_stats(&use, &fr, &map);
+            plat_process_memory(&res, &prv);
+            rt_log("ctl: heap %s at frame %llu: C heap in use %.1f MiB, free %.1f MiB, mapped %.1f MiB; resident %.1f MiB",
+                   i ? "after the trim" : "now", (unsigned long long)frame, use / 1048576.0, fr / 1048576.0,
+                   map / 1048576.0, res / 1048576.0);
+            if (i) rt_log("ctl: heap trim took %.2f ms", took / 1e6);
+        }
     } else if (!strcmp(cmd, "frame")) {
         rt_log("ctl: frame %llu", (unsigned long long)frame);
     } else if (!strcmp(cmd, "focus") && (*arg == '0' || *arg == '1')) {

@@ -261,8 +261,8 @@ const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFla
     else if (aspect != VK_IMAGE_ASPECT_COLOR_BIT) return "stencil only";
     uint64_t bytes = (uint64_t)w * h * d * f->bytes;
     uint64_t est = ((uint64_t)h * (1 + 4ull * w * d) + 128) * (mode_of(f) == M_FLOAT ? 2 : 1);
-    if ((uint64_t)png_bytes + est > PNG_CAP) return "PNG cap reached";
-    if ((uint64_t)inflight + bytes > INFLIGHT_CAP) return "too many copies in flight";
+    if ((uint64_t)png_bytes + est > png_cap) return "PNG cap reached";
+    if ((uint64_t)inflight + bytes > inflight_cap) return "too many copies in flight";
     Job *j = calloc(1, sizeof *j);
     if (!j) rt_fatal("vk_dump: out of memory");
     VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = bytes,

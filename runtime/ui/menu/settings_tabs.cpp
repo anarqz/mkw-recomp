@@ -331,6 +331,11 @@ static void tab_graphics(float scale) {
         const char *names[5] = {menu_text(UI_MENU_FPS_AUTO), "60", "30", "20", "15"};
         opt_choice_list("MKW_FPS", UI_MENU_FPS, vals, names, 5, UI_MENU_FPS_DESC);
     }
+    {   // game steps a second (core/boot/game.c frame_logic_hz), read at start
+        static const char *const vals[] = {"60", "120", "144", "240"};
+        const char *names[4] = {"60 Hz", "120 Hz", "144 Hz", "240 Hz"};
+        opt_choice_list("MKW_LOGIC_HZ", UI_MENU_LOGIC_HZ, vals, names, 4, UI_MENU_LOGIC_HZ_DESC);
+    }
     {   // frames made between the game's (gfx/vk/device/vk_framegen.c), live
         static const char *const vals[] = {"off", "auto", "2", "3", "4", "120"};
         const char *names[6] = {menu_text(UI_MENU_PERF_OFF), menu_text(UI_MENU_FPS_AUTO), "2x", "3x", "4x", "120 fps"};

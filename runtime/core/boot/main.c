@@ -122,8 +122,8 @@ static const char *log_name_own(void) {
     return n;
 }
 
-// Opens the log file for a game run (game = 1) and writes the buffered lines to it; anything else drops them. Runs on
-// the main thread before the boot starts other threads.
+// Opens the log file for a game run or the start screen (game = 1) and writes the buffered lines to it; anything else
+// drops them. Runs on the main thread before the boot starts other threads.
 static void log_open(int game) {
     char dir[PLAT_PATH_MAX * 3], from[PLAT_PATH_MAX * 3 + 16], to[PLAT_PATH_MAX * 3 + 16];
     char *cut = NULL;
@@ -512,7 +512,7 @@ static int usage(const char *argv0) {
     fprintf(stderr, "usage: %s [--exefs DIR] [--romfs DIR|FILE.nup|FILE.nx] [--nup FILE] [--profile DIR] [--mod NAME]... [--launcher | --play | --selftest | --probe-loader | --probe-plugin | "
                     "--probe-cfg | --probe-kernel | --probe-audio | --probe-services | --probe-fs | --probe-gfx-abi | "
                     "--probe-nvn | --probe-nvn-tex | --probe-window | --probe-vkmem | "
-                    "--probe-vkexec | --probe-astc | --probe-framegen | --probe-gpu-clocks | --probe-fps | --probe-merge | --probe-discord | --probe-dsu | --probe-texpre | --texpre | --prewarm | --boot |--seconds S [--shot PNG]]\n", argv0);
+                    "--probe-vkexec | --probe-astc | --probe-framegen | --probe-gpu-clocks | --probe-fps | --probe-merge | --probe-spill | --probe-discord | --probe-dsu | --probe-texpre | --texpre | --prewarm | --boot |--seconds S [--shot PNG]]\n", argv0);
     return 2;
 }
 
@@ -584,6 +584,13 @@ void launcher_refresh_romfs(void) {
 
 static int run_launcher(int argc, char **argv) {
     cfg_init();   // mkw.ini: the settings pages read and write it
+    // logs/launcher.log, with the crash handler: a start screen that stopped before its window showed left nothing on
+    // disk, as the game's mkw.log only opens in the game's own process (#634, 19/11/2026: "didnt find any log"). Its
+    // own name, so it leaves mkw.log, the last game run's, to the notice that reads it; dropped before Play's restart.
+    int own = !log_name_own();
+    if (own) plat_setenv("MKW_LOG_NAME", "launcher");
+    log_open(1);
+    plat_crash_hook(crash_handler);
     // the Mods page merges against the same romfs the game will boot: argv wins, else MKW_ROMFS / mkw.ini,
     // else the selected installation, else the baked-in default
     for (int i = 1; i + 1 < argc; i++)
@@ -612,6 +619,7 @@ static int run_launcher(int argc, char **argv) {
         if (!strcmp(argv[i], "--gb-install")) launcher_gb_install(argv[i + 1]);
     if (launcher_run() != LAUNCHER_PLAY) return 0;
     plat_setenv("MKW_LAUNCHED", "1");
+    if (own) plat_setenv("MKW_LOG_NAME", NULL);
     plat_reexec();
 }
 
@@ -719,6 +727,7 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "--probe-gpu-clocks")) return probe_gpu_clocks();
     if (!strcmp(mode, "--probe-fps")) return probe_fps();
     if (!strcmp(mode, "--probe-merge")) return probe_merge();
+    if (!strcmp(mode, "--probe-spill")) return probe_spill();
     if (!strcmp(mode, "--probe-discord")) return probe_discord();
     if (!strcmp(mode, "--probe-dsu")) return probe_dsu();
     if (!strcmp(mode, "--probe-vkdevice")) return probe_vkdevice();

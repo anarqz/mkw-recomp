@@ -216,3 +216,22 @@ site seed main 15585a4 944b4b73 947ae283   # same
 # Separate set: an old game table must not enable tall output without this hook.
 set vertplus MKW_VERTPLUS_PATCH 0
 site vertplus main 45fba4 1e2d0808 94bec4e3   # fmul s8, s0, s13 -> bl host_camera_fov (page + 0xf30)
+
+# Game logic at any rate (MKW_LOGIC_HZ, core/boot/game.c): the ModuleSystem (main+0x80c14c builds it; its 27 modules,
+# Actor to XLink, are named by Gyml/ModuleCalcDependencyGParam) writes its step record {1/60 s, 1.0, interval} at
+# [sys+0x500] and hands it to every module (+0x58): each frame in main+0x45e7ec, and before the one-off calcs of its
+# events 0, 8 and 0xe in main+0x159fe4 (a virtual). The interval comes from [sys+0x50c], where the frame's delegate
+# (main+0x45e6c8 inlined, or main+0x261bb3c) copies NVN's present interval: there the host stores it as whole 60 Hz
+# frames from an accumulator (120 Hz: 0, 1, 0, 1), so every writer hands out the same; at each writer the host writes
+# the step's {seconds, 60 Hz frames} through x8 instead of {1/60, 1.0}.
+set logichz MKW_LOGIC_HZ_PATCH 0
+site logichz main 45e814 b9000109 94bec973   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 45e820 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 45e790 b9050e68 94bec990   # str w8, [x19, #0x50c] (present interval) -> bl host_logic_copy (patch page + 0xdd0)
+site logichz main 261bb80 b9050e68 9437d494  # the same copy in the delegate's own body (main+0x261bb3c)
+site logichz main 15a0b8 b9000109 94cadb4a   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 15a0c4 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 15a114 b9000109 94cadb33   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 15a120 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 15a168 b9000109 94cadb1e   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 15a174 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop

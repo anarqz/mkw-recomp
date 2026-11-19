@@ -38,9 +38,10 @@
     {{"ReadyRace", ready, RT_RACE_ARM}, {"StartIntroMovie", start_movie, RT_RACE_ARM},                       \
      {"WaitIntroMovie", wait_movie, RT_RACE_ARM}, {"IsSequenceFlag", flag, RT_RACE_START},                   \
      {"RaceFinishFaderOpenCheck", finish, RT_RACE_LEAVE}, {"GrandprixEndMovie", gp_end, RT_RACE_LEAVE},      \
-     {"GrandprixListup", gp_list, RT_RACE_LEAVE}, {"TitleMenuMain", title, RT_RACE_LEAVE},                   \
-     {"VSCourseSelect", vs, RT_RACE_LEAVE}, {"MenuTimeAttackMain", tt, RT_RACE_LEAVE},                       \
-     {"ReturnToTitleMenu", to_title, RT_RACE_LEAVE}, {"PartsSelectEx", parts, RT_RACE_LEAVE},                \
+     {"GrandprixListup", gp_list, RT_RACE_LEAVE}, {"TitleMenuMain", title, RT_RACE_LEAVE | RT_RACE_TT_OFF},  \
+     {"VSCourseSelect", vs, RT_RACE_LEAVE | RT_RACE_TT_OFF},                                                 \
+     {"MenuTimeAttackMain", tt, RT_RACE_LEAVE | RT_RACE_TT_ON},                                              \
+     {"ReturnToTitleMenu", to_title, RT_RACE_LEAVE | RT_RACE_TT_OFF}, {"PartsSelectEx", parts, RT_RACE_LEAVE}, \
      {"ChatUIReady", chat, RT_RACE_CHAT}, {"ReadyFreeRun", free, RT_RACE_FREE_ARM}}
 
 static const RtVersion versions[] = {

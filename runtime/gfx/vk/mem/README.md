@@ -20,6 +20,8 @@ submit's copies of constant blocks.
 | `vk_mem_dirty.c` | Dirty page census (`MKW_DIRTY_CENSUS` with `MKW_TRACE=perf`) |
 | `vk_mem_cap.c` | For captures (`../cap/`): the chunks of physical pools, which only the GPU writes, read when capturing and written when replaying |
 | `vk_mem_log.c` | Census of pools and traffic, VRAM summary, device class and memory mode (`MKW_MEMORY`); the mirror and shadow summaries also once at a capture replay's end |
+| `vk_mem_spill.c` | `MKW_MEM_SPILL` (on by default on Linux; 0 off): a thread that every 5 s spills to a file the pages of pools without CPU access the GPU has never resolved (`core/memory/memory_spill.c`); they come back on first touch; `MKW_MEM_SPILL_ANY=1` (diagnosis) spills every lazy pool, CPU-accessible ones too |
+| `vk_mem_pooldiag.c` | Diagnostic `MKW_MEM_POOL_LABELS`: every 300 frames, per kind of pool, its shadow copies against the game's pages in RAM, and the runtime's reads of CPU_NO_ACCESS pool storage (shadow fills, texture uploads, write-backs) |
 | `vk_mem_upload.c`, `vk_headroom.c` | Upload batches, staging, deferred destruction and `vk_mem_relieve` (what to release when an allocation does not fit); new VMA blocks on another thread |
 | `vk_mem_uptime.c` | Diagnostic `MKW_UPLOAD_TIME`: GPU time of each upload batch, with what it carried |
 | `vk_usnap.c` | Constant blocks copied when recording of the submit starts, so the game can rewrite them afterwards |

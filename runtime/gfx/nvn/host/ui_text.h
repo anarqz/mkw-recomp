@@ -34,6 +34,7 @@ typedef enum {
     UI_PERF_LINE_FPS,
     UI_PERF_LINE_FPS_FG,   // the same with frame generation on: game frames / frames shown
     UI_MENU_FPS, UI_MENU_FPS_DESC, UI_MENU_FPS_AUTO,
+    UI_MENU_LOGIC_HZ, UI_MENU_LOGIC_HZ_DESC,   // values: 60 Hz..240 Hz
     UI_MENU_FRAMEGEN, UI_MENU_FRAMEGEN_DESC,   // values: UI_MENU_PERF_OFF, UI_MENU_FPS_AUTO, 2x..4x
     UI_MENU_FRAMEGEN_UNEVEN, UI_MENU_VRR, UI_MENU_VRR_DESC,
     UI_MENU_LOW_LATENCY, UI_MENU_LOW_LATENCY_DESC,

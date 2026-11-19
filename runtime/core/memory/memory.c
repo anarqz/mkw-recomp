@@ -199,11 +199,13 @@ static void fill_locked(uint64_t a, int why) {
 }
 
 static void untrap_range_locked(uint64_t a, uint64_t n) {
-    if (!ntrapped && !mem_early_pages && !mem_base_pages()) return;
+    if (!ntrapped && !mem_early_pages && !mem_base_pages() && !mem_spill_pages()) return;
     uint64_t end = a + n < RT_ADDRESS_LIMIT ? a + n : RT_ADDRESS_LIMIT;
-    for (uint64_t p = a & ~(PAGE - 1); p < end && (ntrapped || mem_early_pages || mem_base_pages()); p += PAGE)
+    for (uint64_t p = a & ~(PAGE - 1);
+         p < end && (ntrapped || mem_early_pages || mem_base_pages() || mem_spill_pages()); p += PAGE)
         if (trapped[p / PAGE] == 2) mem_early_release_locked(p, 0);
         else if (trapped[p / PAGE] == 3) mem_base_fill_locked(p);
+        else if (trapped[p / PAGE] == 4) mem_spill_fill_locked(p, 2);
         else if (trapped[p / PAGE]) fill_locked(p, 2);
 }
 
@@ -230,10 +232,12 @@ int mem_trap(uint64_t a, uint64_t n, const void *src) {
     for (uint64_t r = a >> FRZ_SHIFT; r <= (a + n - 1) >> FRZ_SHIFT; r++) thaw_locked(r, 2);
     // A page MKW_EARLY_READ watches gets its own protection back first: the trap below then takes the GPU's bytes.
     // A base-trapped one gives its bytes to its base first: the pokes below write through its protection.
-    if (mem_early_pages || mem_base_pages())
+    // A spilled one gets its bytes back from the file first.
+    if (mem_early_pages || mem_base_pages() || mem_spill_pages())
         for (uint64_t q = a & ~(PAGE - 1); q < a + n; q += PAGE) {
             if (trapped[q / PAGE] == 2) mem_early_release_locked(q, 0);
             else if (trapped[q / PAGE] == 3) mem_base_fill_locked(q);
+            else if (trapped[q / PAGE] == 4) mem_spill_fill_locked(q, 2);
         }
     // The partial pages at the ends hold guest bytes besides the GPU's: copied now.
     int ok = 1;
@@ -317,6 +321,7 @@ static int thaw_fault(uint64_t a) {
         plat_mutex_lock(&frz_lock);
         if (trapped[a / PAGE] == 2) wait = mem_early_release_locked(a, 1);   // the byte touched
         else if (trapped[a / PAGE] == 3) mem_base_fill_locked(a);            // a write into a base's page
+        else if (trapped[a / PAGE] == 4) mem_spill_fill_locked(a, 1);        // a spilled page: its bytes from the file
         else if (trapped[a / PAGE]) fill_locked(a, 1);
         plat_mutex_unlock(&frz_lock);
         if (wait) mem_early_wait(wait);
@@ -412,6 +417,9 @@ uint64_t mem_runtime_alloc(uint64_t size, const char *what) {
         return 0;
     }
     commit(a, size, what);
+    char name[64];
+    snprintf(name, sizeof name, "mkw rt %s", what);
+    plat_mem_name((void *)(uintptr_t)a, size, name);
     runtime_top = a;
     plat_mutex_unlock(&lock);
     rt_log("mem: %s: %#llx bytes of the runtime's own at %#llx, above the game's heap", what,
@@ -485,6 +493,14 @@ void mem_init(void) {
         .pool = pool ? strtoull(pool, NULL, 0) : DEFAULT_POOL,
     };
     if (!L.pool) rt_fatal("memory: MKW_APP_POOL is 0");
+    // Labels for the memory census (plat_mem_name): the block first, its stack and heap over it.
+    static const char *const names[] = {"modules", "kernel", "hostfn", "other", "stack", "heap", "alias"};
+    const RtRange where[] = {{mods_lo, mods_hi - mods_lo}, L.kernel, L.hostfn, {low, LOW_SIZE}, L.stack, L.heap, L.alias};
+    for (int i = 0; i < 7; i++) {
+        char name[32];
+        snprintf(name, sizeof name, "mkw guest %s", names[i]);
+        plat_mem_name((void *)(uintptr_t)where[i].base, where[i].size, name);
+    }
 #ifdef _WIN32
     const char *lz = cfg_get("MKW_LAZY_COMMIT");
     lazy = !lz || atoi(lz) != 0;

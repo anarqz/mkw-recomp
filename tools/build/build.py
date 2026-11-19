@@ -56,6 +56,7 @@ RT_FLAGS = ["-O2", "-g", "-Wall", "-fno-strict-aliasing", *ARCH_FLAGS[ARCH]]
 sys.path.insert(0, str(ROOT / "recomp"))
 import versions  # noqa: E402  (the game version of a dump: generated dir, patches, RtGame.version)
 from versions import detect as detect_version  # noqa: E402
+import patches  # noqa: E402  (recomp/patches.py: the patch file's hash in patches.h)
 import hud_layouts  # noqa: E402  (the screen-edge HUD's layout table, written to build/obj/rt/hud_layouts.h)
 
 
@@ -77,6 +78,13 @@ def check_gen(gen: Path, exefs: Path) -> None:
         sys.exit(f"{gen} has {', '.join(sorted(gen_mods))} but {exefs} is {v.name}"
                  f" ({', '.join(sorted(exefs_mods))}): run `make generated EXEFS={exefs}`"
                  + (f" (writes {want})" if gen != want else ""))
+    # its patch sites are compiled into the C, the host functions they call are the runtime's: both from one file
+    # (19/11/2026: two runs with recomp/patches-mkw.txt's new sites in the runtime and the old ones in the game code)
+    header = gen / "patches.h"
+    line = patches.source_line(v.patches)
+    if header.is_file() and line not in header.read_text().splitlines():
+        sys.exit(f"{gen}/patches.h was generated from another {v.patches.name}: run "
+                 f"`uv run recomp/gen.py --exefs {exefs}` first (only the changed chunks recompile)")
 
 
 def set_arch(arch: str) -> None:

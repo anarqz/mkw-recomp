@@ -14,22 +14,32 @@
 
 #define SLOT_ENTER 10
 
-static volatile int in_race, armed, free_armed;
+static volatile int in_race, armed, free_armed, time_trial;
 static uint64_t orig[RT_RACE_EVENTS];   // each patched class's own start method
 
 int race_scene_on(void) { return __atomic_load_n(&in_race, __ATOMIC_RELAXED); }
 
+// Time trial, from its menu (MenuTimeAttackMain) until the title menu, VS or the return to the title: MKW_LOGIC_HZ goes
+// back to 60 there (game.c), as the ghosts keep one input per 1/60 s frame. Not ended by CleanupTimeAttack, which may
+// also run between two attempts: a mode left another way stays at 60, the console's rate.
+int race_scene_time_trial(void) { return __atomic_load_n(&time_trial, __ATOMIC_RELAXED); }
+
 // Event k's class started a node (x0): note it, then the class's own start method with the same arguments
 static void node_start(Cpu *c, int k) {
     const RtRaceEvent *e = &rt_version()->race_events[k];
-    int was = in_race;
-    if (e->role == RT_RACE_ARM) armed = 1, in_race = 0;
-    else if (e->role == RT_RACE_START && armed) armed = 0, in_race = 1;
-    else if (e->role == RT_RACE_LEAVE) armed = free_armed = 0, in_race = 0;
-    else if (e->role == RT_RACE_FREE_ARM) free_armed = 1, in_race = 0;
+    int was = in_race, role = e->role & RT_RACE_ROLE, tt = time_trial;
+    if (e->role & (RT_RACE_TT_ON | RT_RACE_TT_OFF))
+        __atomic_store_n(&time_trial, !!(e->role & RT_RACE_TT_ON), __ATOMIC_RELAXED);
+    if (time_trial != tt)
+        rt_log("race: time trial %s at the start of %s: logic at %d Hz", time_trial ? "begins" : "ends", e->name,
+               frame_logic_hz());
+    if (role == RT_RACE_ARM) armed = 1, in_race = 0;
+    else if (role == RT_RACE_START && armed) armed = 0, in_race = 1;
+    else if (role == RT_RACE_LEAVE) armed = free_armed = 0, in_race = 0;
+    else if (role == RT_RACE_FREE_ARM) free_armed = 1, in_race = 0;
     // ChatUIReady starts at a race's finish (the standings over the course, vf1) and when free roam begins, right
     // after ReadyFreeRun (fl124a/b/f): free roam is driving, so it counts as a race
-    else if (e->role == RT_RACE_CHAT) in_race = free_armed, free_armed = armed = 0;
+    else if (role == RT_RACE_CHAT) in_race = free_armed, free_armed = armed = 0;
     if (in_race != was) rt_log("race: %s at the start of %s", in_race ? "in a race" : "out of the race", e->name);
     rt_call(c, orig[k], 8, c->x[0], c->x[1], c->x[2], c->x[3], c->x[4], c->x[5], c->x[6], c->x[7]);
 }

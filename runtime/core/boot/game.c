@@ -14,6 +14,7 @@
 // fps_auto.c's 3 or 4 below that in a race; auto_want), 60, 30, 20, 15, or game (the game's own choice, 1-2: the
 // console's, for A/B).
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cfg.h"
@@ -28,13 +29,42 @@
 #define FRAME_HOST 0xfa0                          // patch page offset of host_frame_update (patches.c)
 #define SPEED_WINDOW_NS 5000000000ull
 
-static _Atomic uint64_t ticks;   // 60 Hz ticks since the first present
+static _Atomic uint64_t ticks;   // game time since the first present, in 60 Hz ticks whatever MKW_LOGIC_HZ is
+static uint32_t ticks_acc;       // 60 Hz ticks owed times the step rate, below it (the vsync thread alone writes it)
+static int ticks_hz;
 
 // MKW has no save-load point: the A/B blocks (MKW_AB, perf.c rt_ab) count from the phase MKW_SEQ_UNTIL waits for
 // (the race's start in tools/run/race.sh), so both halves measure the same scene.
 int64_t frame_step_world_us(void) { return seqwatch_since_us(); }
 
+// Game time in 60 Hz ticks whatever MKW_LOGIC_HZ is: the input script, the movie skip and the codec count in them
+// (lhz120, 19/11/2026: the script counted steps of 1/120 s and pressed A at half the game time, skipping the intro).
 uint64_t frame_step_ticks(void) { return atomic_load_explicit(&ticks, memory_order_relaxed); }
+
+// MKW_LOGIC_HZ (the menu's Logic rate, 60 by default): the vsync thread ticks N times a second and each game step is 1/N s
+// (patches.c set logichz), so the game logic runs N steps a second instead of 60. 60 when unset or out of 30..480, and
+// when the game version has no logichz set (frame_logic_hz_60): ticks at N with steps of 1/60 would run it N/60 fast.
+// Also 60 where the game counts its inputs in 1/60 s frames: with MKW_LAN on, the whole run (the LAN game keeps its
+// consoles in step frame by frame), and in time trial (race_scene.c: the ghosts keep one input per frame).
+// MKW_LOGIC_HZ_TT=1 (a test, not a setting) keeps N in time trial too: its timer is the only one the race shows, so
+// it measures whether the race follows game time at N (ghosts saved then would not replay at 60).
+static int hz, hz_tt;
+
+void frame_logic_hz_60(void) { hz = 60; }
+
+int frame_logic_hz(void) {
+    if (!hz) {
+        const char *v = cfg_get("MKW_LOGIC_HZ");
+        int n = v ? atoi(v) : 60;
+        hz = n >= 30 && n <= 480 ? n : 60;
+        hz_tt = rt_knob("LOGIC_HZ_TT", "0");   // a test switch, not a menu setting: no row in the settings table
+        if (hz != 60 && cfg_bool("MKW_LAN")) {
+            rt_log("game: MKW_LOGIC_HZ=%d with MKW_LAN on: 60 Hz, as the LAN game counts in 1/60 s frames", hz);
+            hz = 60;
+        }
+    }
+    return hz != 60 && !hz_tt && race_scene_time_trial() ? 60 : hz;
+}
 
 // Game speed, for tools/run/summary.py: game seconds per real second over each window, and how often the interval
 // changed. Below 1 the game runs in slow motion.
@@ -53,7 +83,7 @@ static void speed_note(int interval) {
     if (now - sp.t0 < SPEED_WINDOW_NS) return;
     double real = (double)(now - sp.t0) / 1e9;
     rt_log("game: speed %.2fx over %.1f s (%u frames, %u interval changes, MKW_FPS %s)",
-           (double)(clock - sp.clock0) / 60.0 / real, real, sp.frames, sp.changes, cfg_value("MKW_FPS"));
+           (double)(clock - sp.clock0) / frame_logic_hz() / real, real, sp.frames, sp.changes, cfg_value("MKW_FPS"));
     sp.t0 = now, sp.clock0 = clock, sp.frames = sp.changes = 0;
 }
 
@@ -64,7 +94,12 @@ int frame_present_interval(void) { return atomic_load_explicit(&last_interval, m
 void frame_step_present(uint64_t display_ns, int interval) {
     (void)display_ns;
     atomic_store_explicit(&last_interval, interval > 0 ? interval : 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(&ticks, interval > 0 ? (uint64_t)interval : 1, memory_order_relaxed);
+    // interval steps of 1/N s in 60 Hz ticks; N changes on entering or leaving time trial, so the remainder restarts
+    uint32_t n = (uint32_t)frame_logic_hz();
+    if ((int)n != ticks_hz) ticks_hz = (int)n, ticks_acc = 0;
+    ticks_acc += 60u * (interval > 0 ? (uint32_t)interval : 1u);
+    atomic_fetch_add_explicit(&ticks, ticks_acc / n, memory_order_relaxed);
+    ticks_acc %= n;
     speed_note(interval);
 }
 
@@ -89,10 +124,11 @@ static void frame_trace(uint64_t obj, uint64_t t0) {
     prev = now;
 }
 
-static int fixed_interval(const char *fps) {
+// The interval counts vsync ticks of MKW_LOGIC_HZ (n): MKW_FPS's rates are n/fps ticks (120 Hz: 30 fps is 4)
+static int fixed_interval(const char *fps, int n) {
     static const struct { const char *name; int iv; } t[] = {{"60", 1}, {"30", 2}, {"20", 3}, {"15", 4}};
     for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++)
-        if (!strcmp(fps, t[i].name)) return t[i].iv;
+        if (!strcmp(fps, t[i].name)) return (t[i].iv * n + 30) / 60;
     return 0;
 }
 
@@ -102,7 +138,8 @@ static int auto_interval(uint64_t obj) {
     static FpsAuto a;
     static int ready;
     static uint64_t last;   // when the last frame began: the real period, which the game's measure can fall short of
-    if (!ready) fps_auto_reset(&a), ready = 1;
+    int n = frame_logic_hz();   // its ticks: back to 60 in time trial starts it over
+    if (!ready || a.hz != n) fps_auto_reset(&a), a.hz = n, ready = 1;
     uint64_t now = kern_now_ns();
     double ms = (double)*(const int64_t *)(uintptr_t)(obj + FRAME_MEASURED) * RT_TICK_NS / 1e6;
     double real = last ? (now - last) / 1e6 / turbo_speed() : 0;
@@ -119,9 +156,11 @@ static int auto_interval(uint64_t obj) {
 // at 2 and the race ran at 0.75-0.83x (Radeon 660M, 36 ms frames), so there the controller's 3 or 4 (only in a race).
 // Frame generation keeps the controller's whole interval: its factor follows the game's interval (vk_framegen.c fits),
 // which would change from one frame to the next.
+// At MKW_LOGIC_HZ other than 60 the game's own choice is wrong: it compares its frame with 1/60 s, so a 12 ms frame
+// got interval 1 at 120 Hz, 1/120 s of game time, and the game ran at half speed; the controller's interval always.
 static int auto_want(uint64_t obj) {
     int iv = auto_interval(obj);
-    if (strcmp(cfg_value("MKW_FRAMEGEN"), "off")) return iv;
+    if (strcmp(cfg_value("MKW_FRAMEGEN"), "off") || frame_logic_hz() != 60) return iv;
     return iv > OUT_OF_RACE_MAX && race_scene_on() ? iv : 0;
 }
 
@@ -141,18 +180,20 @@ static void host_frame_update(Cpu *c) {
     if (movie != was_movie) rt_log("game: %s", movie ? "a movie plays: the game picks the interval" : "movie over");
     if (opening != was_opening) rt_log("game: %s", opening ? "a cup opening: interval 1" : "cup opening over");
     was_movie = movie, was_opening = opening;
-    int want = opening                       ? 1
-             : movie || !strcmp(fps, "game") ? 0
+    // At n Hz a cup opening goes at n / 60 (the console's 1), and a movie or MKW_FPS=game at auto's (auto_want)
+    int n = frame_logic_hz();
+    int want = opening                       ? (n + 59) / 60
+             : movie || !strcmp(fps, "game") ? (n != 60 ? auto_want(c->x[0]) : 0)
              : !strcmp(fps, "auto")          ? auto_want(c->x[0])
-                                             : fixed_interval(fps);
+                                             : fixed_interval(fps, n);
     // 20 and 15 only in a race (race_scene.c): menus and loads go at 30 at most, as on the console (Adrià 15/11/2026);
     // a menu counting in 1/60 s steps risks at 3 or 4 what the cup opening showed
     static int was_capped;
-    int capped = want > OUT_OF_RACE_MAX && !race_scene_on();
+    int cap = OUT_OF_RACE_MAX * n / 60, capped = want > cap && !race_scene_on();
     if (capped != was_capped)
-        rt_log("game: interval %d %s", want, capped ? "capped at 2 (out of a race)" : "no longer capped");
+        rt_log("game: interval %d %s %d (out of a race)", want, capped ? "capped at" : "no longer capped at", cap);
     was_capped = capped;
-    if (capped) want = OUT_OF_RACE_MAX;
+    if (capped) want = cap;
     if (want) {
         if (saved < 0) {
             saved = (int)*fixed;
