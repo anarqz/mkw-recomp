@@ -19,7 +19,7 @@
   machine and downloads NVIDIA's `nvdisasm` and `ptxas` (pinned by sha256; 84 MB on Linux, 126 MB on Windows) to
   describe the shader encoding.
 - Every package and the `mkw.exe` in the zip carry a build attestation: `gh attestation verify mkw.exe --repo
-  adriadam10/mkw-recomp` shows it was built by this repository's GitHub Actions. An antivirus that flags it by its
+  anarqz/mkw-recomp` shows it was built by this repository's GitHub Actions. An antivirus that flags it by its
   behaviour (it compiles and loads the game's code) is a false positive: report it to that antivirus.
 
 ## Updating

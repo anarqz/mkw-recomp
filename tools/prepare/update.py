@@ -17,7 +17,7 @@ Exit codes: 0 done, 1 failed.
 Usage: python -I update.py check --version VER [--os linux|windows]
        python -I update.py fetch --tag TAG --dest DIR [--os linux|windows]
        python -I update.py clean --game DIR [--previous VERSION]
-MKW_UPDATE_REPO=owner/name (default adriadam10/mkw-recomp) and MKW_UPDATE_AS=<version> (compare as that version: a
+MKW_UPDATE_REPO=owner/name (default anarqz/mkw-recomp, the MKWMP release line) and MKW_UPDATE_AS=<version> (compare as that version: a
 test) change what is asked; MKW_UPDATE_API=<url> asks <url>/releases/latest instead of GitHub's (a test: a local
 server offering a package not released).
 """
@@ -38,7 +38,7 @@ import zipfile
 from contextlib import suppress
 from pathlib import Path
 
-REPO = os.environ.get("MKW_UPDATE_REPO") or "adriadam10/mkw-recomp"
+REPO = os.environ.get("MKW_UPDATE_REPO") or "anarqz/mkw-recomp"   # the MKWMP release line (upstream: adriadam10/)
 CHECK_TIMEOUT = 5  # s: the start screen waits for nothing, but a hung request should not linger
 FETCH_TIMEOUT = 30
 ASSET_SUFFIX = {  # tools/build/release.py's names
