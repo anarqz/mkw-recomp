@@ -54,7 +54,8 @@ TEXT = {
     "game": "Only Mario Kart World 1.0.0 or 1.8.0 dumped from your own console is supported; issues about obtaining the game, "
     "its files or keys are closed.",
     "logs": "Thanks for the report. To find the cause we need the log: please attach `logs/mkw.log` from the game "
-    "folder (or `logs/setup.log` and `logs/warm.log` if the setup failed) by dragging it into a comment; the wiki says "
+    "folder (or `logs/setup.log` and `logs/warm.log` if the setup failed, `logs/launcher.log` if the start screen does "
+    "not open) by dragging it into a comment; the wiki says "
     "[where it is]({repo_url}/wiki/Installation#where-things-live). Without it this issue is closed "
     f"in {LOG_DAYS} days.",
     "dup": "Thanks for the report. This looks like #{issue}: {what}. Please follow and add to that issue instead; this "

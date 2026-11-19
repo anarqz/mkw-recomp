@@ -147,6 +147,8 @@ void plat_file_close(PlatFile *f) {
     if (f) CloseHandle((HANDLE)f);
 }
 
+PlatFile *plat_file_scratch(const char *dir) { return (void)dir, NULL; }   // memory_spill.c is Linux only for now
+
 int64_t plat_file_pread(PlatFile *f, void *buf, uint32_t n, uint64_t off) {
     static __thread HANDLE ev;
     if (!ev && !(ev = CreateEventW(NULL, TRUE, FALSE, NULL))) return -1;

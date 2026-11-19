@@ -216,6 +216,7 @@ void mem_early_watch(uint64_t a, uint64_t n, uint64_t fence, int kind) {
         uint8_t t = trapped[p / PAGE];
         if (t == 1) continue;   // the GPU's bytes of an earlier fence are still pending: a read trap already
         if (t == 3) mem_base_fill_locked(p), t = 0;   // a base's page: its bytes go to the base, then it is watched
+        if (t == 4) mem_spill_fill_locked(p, 2), t = 0;   // a spilled page: back from the file, then it is watched
         // With waits, only pages the GPU has written in earlier frames (a frame repeats the last one): a bound storage
         // buffer the shader only reads costs a fault per touch, by the game and by the shadow sync (ews1: ~270 a frame).
         if (wait_mode && !gpu_wrote[p / PAGE]) continue;

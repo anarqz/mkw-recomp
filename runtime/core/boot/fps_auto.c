@@ -1,4 +1,5 @@
-// MKW_FPS=auto: the present interval (1-4: 60, 30, 20, 15 fps) from the time the game measured for each frame (its
+// MKW_FPS=auto: the present interval (1-4 at 60 Hz: 60, 30, 20, 15 fps; in ticks of FpsAuto.hz otherwise, up to the
+// same 15 fps: 8 at 120 Hz) from the time the game measured for each frame (its
 // frame object's [+0x128], game.c). The game's own choice stops at 2: below 30 fps the race ran in slow motion
 // (0.75-0.83x on the Radeon 660M at 36 ms a frame). Its rule (acc += measured - interval * 16.7 ms, capped at
 // +-66.7 ms, interval = acc / 16.7 + 1) taken to 4 would cycle 2, 3, 4 on a steady 36 ms frame, each step undoing the
@@ -8,7 +9,6 @@
 
 #include "host.h"
 
-#define PERIOD_MS (1000.0 / 60.0)
 #define UP_FRAMES 8
 #define DOWN_MARGIN 0.85   // lat4: race frames of 25-40 ms moved it 2 <-> 3 every few seconds with 0.92 over 1 s
 #define DOWN_SECONDS 2
@@ -36,10 +36,17 @@ static double median(const FpsAuto *a, unsigned count) {
     return n ? v[n / 2] : 0.0;
 }
 
-static int fitting(double ms, double margin) {   // the smallest interval a frame of ms fits in
-    for (int iv = 1; iv < FPS_AUTO_MAX; iv++)
-        if (ms <= iv * PERIOD_MS * margin) return iv;
-    return FPS_AUTO_MAX;
+// The vsync rate the interval counts in (MKW_LOGIC_HZ), one tick of it, and the slowest interval: 15 fps at any rate
+// (120 Hz: 8), not 4 ticks, which at 120 Hz stopped at 30 fps and ran a 19 fps race at 0.65x (lhz120r)
+static int rate(const FpsAuto *a) { return a->hz > 0 ? a->hz : 60; }
+static double period_ms(const FpsAuto *a) { return 1000.0 / rate(a); }
+static int max_iv(const FpsAuto *a) { return (FPS_AUTO_MAX * rate(a) + 30) / 60; }
+
+static int fitting(const FpsAuto *a, double ms, double margin) {   // the smallest interval a frame of ms fits in
+    int top = max_iv(a);
+    for (int iv = 1; iv < top; iv++)
+        if (ms <= iv * period_ms(a) * margin) return iv;
+    return top;
 }
 
 void fps_auto_reset(FpsAuto *a) {
@@ -72,23 +79,23 @@ int fps_auto_step(FpsAuto *a, double measured_ms, double real_ms) {
     if (!a->hold_s) a->hold_s = HOLD_MIN_S;
     if (a->since >= UP_FRAMES && a->n >= UP_FRAMES) {
         double m = median(a, UP_FRAMES), r = a->n_real >= UP_FRAMES ? median_real(a) : 0, v = m > r ? m : r;
-        int stalled = a->fits && v > FPS_AUTO_MAX * PERIOD_MS * STALL_FACTOR;
+        int stalled = a->fits && v > max_iv(a) * period_ms(a) * STALL_FACTOR;
         a->stall_ms = stalled ? a->stall_ms + (real_ms > measured_ms ? real_ms : measured_ms) : 0;
-        int up = stalled && a->stall_ms < STALL_MAX_S * 1000.0 ? a->iv : fitting(v, UP_MARGIN);
+        int up = stalled && a->stall_ms < STALL_MAX_S * 1000.0 ? a->iv : fitting(a, v, UP_MARGIN);
         if (!stalled) a->fits = up <= a->iv;
         if (up > a->iv) {
-            int undid_down = a->downed && a->since < (unsigned)(PINGPONG_S * 60 / a->iv);
+            int undid_down = a->downed && a->since < (unsigned)(PINGPONG_S * rate(a) / a->iv);
             a->hold_s = undid_down ? (a->hold_s * 2 > HOLD_MAX_S ? HOLD_MAX_S : a->hold_s * 2) : HOLD_MIN_S;
             a->iv = up, a->since = 0, a->downed = 0;
-            a->hold = (unsigned)(a->hold_s * 60 / a->iv);
+            a->hold = (unsigned)(a->hold_s * rate(a) / a->iv);
             return a->iv;
         }
     }
-    unsigned window = DOWN_SECONDS * 60 / (unsigned)a->iv;   // two seconds of frames at this interval
+    unsigned window = DOWN_SECONDS * (unsigned)rate(a) / (unsigned)a->iv;   // two seconds of frames at this interval
     if (a->iv > 1 && !a->hold && a->since >= window && a->n >= window) {
         // one step at a time: the game's measure can be far under the frame's real cost (lat6: 9 ms at interval 4,
         // 66 ms frames), so a step down is a trial the real period confirms or undoes within 8 frames
-        if (fitting(median(a, window), DOWN_MARGIN) < a->iv) a->iv--, a->since = 0, a->downed = 1;
+        if (fitting(a, median(a, window), DOWN_MARGIN) < a->iv) a->iv--, a->since = 0, a->downed = 1;
     }
     return a->iv;
 }

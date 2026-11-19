@@ -58,7 +58,12 @@ def paths_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "static SetupState g_state;\nstatic void start_setup(void) {\n",
         cut(setup, "    unsigned generation =", "    SDL_UnlockMutex(g_lock);")
             .replace("SetupState{", "(SetupState){"),
-        "}\nstatic void boot_paths(int argc, char **argv) {\n",
+        # the launcher's own log and crash handler (#634) are not what this probe drives
+        "}\nstatic const char *log_name_own(void) { return NULL; }\nstatic void log_open(int game) { (void)game; }\n"
+        "static void crash_handler(const PlatCrash *x) { (void)x; }\n"
+        "void plat_crash_hook(void (*fn)(const PlatCrash *c)) { (void)fn; }\n"
+        "int plat_setenv(const char *name, const char *value) { (void)name, (void)value; return 1; }\n",
+        "static void boot_paths(int argc, char **argv) {\n",
         cut(boot, "    cfg_init();   // mkw.ini: the settings pages", "    // the players (Profiles page)"),
         "}\n",
     ]

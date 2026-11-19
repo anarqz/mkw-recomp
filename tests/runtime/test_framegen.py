@@ -34,6 +34,7 @@ static int cfg_bool(const char *key) { (void)key; return variable; }
 static const char *cfg_value(const char *key) { (void)key; return setting; }
 static int turbo_speed(void) { return turbo; }
 static int ov_movie_playing(void) { return movie; }
+static int frame_logic_hz(void) { return 60; }
 """
 
 MAIN = r"""

@@ -219,3 +219,18 @@ site seed main ba83fc 948016ad 94b122ed   # same; 1.0.0's ab7900
 site seed main be9b74 947f10cf 94b01d0f   # same; sead::Random constructor, 1.0.0's 922084
 site seed main e4c8e0 94758574 94a691b4   # same; 1.0.0's c006e0
 site seed main 16a0eec 945433f1 94854031   # same; the other sead::Random constructor, 1.0.0's 15585a4
+
+# Game logic at any rate (MKW_LOGIC_HZ), as 1.0.0's logichz set (patches-mkw.txt): the step record writers are
+# main+0x8d3f0 (1.0.0: main+0x45e7ec) and the event virtual main+0x8de90 (1.0.0: main+0x159fe4), the interval's
+# copies to [sys+0x50c] main+0x8d388 and main+0x2977b94 (1.0.0: main+0x45e790, main+0x261bb80), same code.
+set logichz MKW_LOGIC_HZ_PATCH 0
+site logichz main 8d418 b9000109 94dd8e72   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 8d424 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 8d388 b9050e68 94dd8e92   # str w8, [x19, #0x50c] (present interval) -> bl host_logic_copy (patch page + 0xdd0)
+site logichz main 2977b94 b9050e68 9439e48f  # the same copy in the delegate's own body (main+0x2977b50)
+site logichz main 8df64 b9000109 94dd8b9f   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 8df70 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 8e09c b9000109 94dd8b51   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 8e0a8 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop
+site logichz main 8e1dc b9000109 94dd8b01   # str w9, [x8] (1/60) -> bl host_logic_step (patch page + 0xde0)
+site logichz main 8e1e8 b9000509 d503201f   # str w9, [x8, #4] (1.0) -> nop

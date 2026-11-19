@@ -18,7 +18,8 @@ to one slow piece but to a chain where each step waits for the previous one (mea
 The game's big submit only reaches the back end at the end of its frame, and the GPU cannot start until it is
 recorded, so recording is on the critical path: every millisecond saved there is a millisecond off the frame, down to
 ~21 ms, where the GPU (busy ~20 ms) takes over. Spreading the same CPU work over more threads does not help by
-itself; recording with less CPU does. Already done: recordings reused across frames (−4.3 ms), recording overlapped
+itself; recording with less CPU does. Tried and dropped: reusing a draw's recording across frames (same image, but
++4.3 ms of CPU a frame: the draws that repeat are already the cheap ones). Already done: recording overlapped
 with the game (−2.4 ms), submits on their own thread (−1.2 to −1.6 ms), the shadow copies off the replay thread
 (−0.8 ms), the replay thread on its own core (−1.1 ms), dynamic state recorded only when it changes (idea from
 totk-pc-recomp, MIT; −10.6 % recorder instructions on Steam Deck; no measurable frame-time change). Next:

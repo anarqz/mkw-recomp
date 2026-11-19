@@ -130,6 +130,23 @@ int probe_fps(void) {
     iv = feed(&a, 200.0, 5.0, 300, &changes);   // 60 s
     expect("45 ms, then 200 ms frames for 60 s", iv, 4, changes, 1);
 
+    // MKW_LOGIC_HZ=120: the interval counts 120 Hz ticks, up to 8 (15 fps); lhz120c topped out at 30 fps with 4
+    static const struct { const char *what; double ms; int want; } at120[] = {
+        {"120 Hz, 7 ms frames", 7.0, 1},   {"120 Hz, 15 ms frames", 15.0, 2}, {"120 Hz, 36 ms frames", 36.0, 5},
+        {"120 Hz, 50 ms frames", 50.0, 6}, {"120 Hz, 120 ms frames", 120.0, 8},
+    };
+    for (unsigned i = 0; i < sizeof at120 / sizeof at120[0]; i++) {
+        fps_auto_reset(&a);
+        a.hz = 120;
+        changes = 0;
+        for (int f = 0; f < 1320; f++) {
+            int prev = a.iv;
+            double m = at120[i].ms + (f & 1 ? 0.5 : -0.5), held = prev * 1000.0 / 120;
+            if (fps_auto_step(&a, m, m > held ? m : held) != prev && f >= 120) changes++;
+        }
+        expect(at120[i].what, a.iv, at120[i].want, changes, 0);
+    }
+
     printf("fps: %s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
 }

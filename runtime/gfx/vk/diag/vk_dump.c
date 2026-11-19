@@ -16,7 +16,9 @@
 // frames from..frame-1 to passes.txt, with PNGs only of targets up to 64K texels. MKW_DUMP_BUF=<addr>:<size>[:...]
 // snapshots one GPU buffer range after every logged pass (buf_<pass>.bin and bufs.txt, see buf_snap).
 // PNGs are opaque (alpha dropped). Integer formats are scaled by the image maximum, depth by its min..max range, SNORM
-// as x/2+1/2, UNORM and sRGB bytes written as stored. Caps: MAX_PASSES passes copied, PNG_CAP bytes of PNGs.
+// as x/2+1/2, UNORM and sRGB bytes written as stored. Caps: MAX_PASSES passes copied, PNG_CAP bytes of PNGs,
+// INFLIGHT_CAP bytes of copies waiting for their submission; a race frame needs both raised: MKW_DUMP_INFLIGHT_MIB=4096
+// MKW_DUMP_PNG_MIB=8192.
 // MKW_DUMP_TEX=<id>|<w>x<h>[,...]: those texture slots, or 2D textures of that size, are copied where first sampled,
 // whatever their format.
 // MKW_DUMP_UBO=1: each listed pipeline also prints the first 32 vec4 (MKW_DUMP_UBO_ROWS=from-to adds those rows, and
@@ -86,6 +88,7 @@ static int nwant_tex;
 static uint64_t last_targets;          // targets_sig of the last render pass; 0 after a dispatch
 static const char *pass_skip;          // why the current pass copies nothing, or NULL
 volatile int64_t png_bytes, inflight;
+uint64_t inflight_cap = INFLIGHT_CAP, png_cap = PNG_CAP;
 PlatMutex img_lock = PLAT_MUTEX_INIT;
 PlatMutex rec_lock = PLAT_MUTEX_INIT;
 
@@ -739,6 +742,15 @@ void vk_dump_init(void) {
         w[0] = (uint32_t)strtoul(q, &q, 10);
         w[1] = *q == 'x' ? (uint32_t)strtoul(q + 1, &q, 10) : 0;
     }
+    // MKW_DUMP_INFLIGHT_MIB=<MiB> and MKW_DUMP_PNG_MIB=<MiB> (diagnosis): the host memory a dump's copies may hold
+    // until their submission ends, and the PNG bytes of one dump. A race frame sends nearly all its passes in one
+    // submission: at 1 GiB in flight its last 46 passes, the post-process and the output among them, were "skipped: too
+    // many copies in flight", and with that raised the 2 GiB of PNGs cut the last 22 (19/11/2026, 1.8.0 at 2560x1440,
+    // the countdown of Mario Bros. Circuit; 4096 and 8192 dumped all 273). Read here, as MKW_DUMP_TEX, since MKW_CTL
+    // dumps return before MKW_DUMP below.
+    const char *im = cfg_get("MKW_DUMP_INFLIGHT_MIB"), *pm = cfg_get("MKW_DUMP_PNG_MIB");
+    if (im && *im && strtoull(im, NULL, 10)) inflight_cap = strtoull(im, NULL, 10) << 20;
+    if (pm && *pm && strtoull(pm, NULL, 10)) png_cap = strtoull(pm, NULL, 10) << 20;
     draws_init();
     const char *e = cfg_get("MKW_DUMP");
     if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;

@@ -62,6 +62,8 @@ int vk_pool_init(pool_t *p) {
     r->flags = p->flags;
     r->lo = (uintptr_t)p->mem;
     r->size = p->size;
+    r->born_ms = plat_now_ms();
+    vk_mem_spill_start();
     int ok;
     if (p->flags & NVN_MEMORY_POOL_FLAGS_VIRTUAL) {
         r->kind = POOL_VIRT;
