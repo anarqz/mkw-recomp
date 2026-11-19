@@ -1956,7 +1956,15 @@ static bool open_window(void) {
     // Hidden until its first frame is drawn (launcher_run): shown at once, it is black while the first frame is made.
     SDL_WindowFlags f = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN |
                         (background ? SDL_WINDOW_NOT_FOCUSABLE : 0) | (cfg_steam_console() && !L.shot_at ? SDL_WINDOW_FULLSCREEN : 0);
-    L.win = SDL_CreateWindow("Mario Kart World", (int)(1280 * ds), (int)(720 * ds), f);
+    // 1280 x 720 at the display's scale, but never past its usable area (#633: a 4K TV at Windows' 300 % made it
+    // 3840 x 2160 plus the title bar, cut at the screen's edges): at most 90 % of it, still 16:9.
+    int w = (int)(1280 * ds), h = (int)(720 * ds);
+    SDL_Rect usable;
+    if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable) && usable.w > 0 && usable.h > 0) {
+        float fit = SDL_min(0.9f * usable.w / w, 0.9f * usable.h / h);
+        if (fit < 1) w = (int)(w * fit), h = (int)(h * fit);
+    }
+    L.win = SDL_CreateWindow("Mario Kart World", w, h, f);
     if (L.win) app_icon_set(L.win);
     L.ren = L.win ? SDL_CreateRenderer(L.win, nullptr) : nullptr;
     if (!L.ren) {
@@ -1965,7 +1973,8 @@ static bool open_window(void) {
     }
     SDL_SetRenderVSync(L.ren, 1);
     // under 960 x 540 the column and the pages' two panes no longer fit side by side
-    SDL_SetWindowMinimumSize(L.win, (int)(960 * ds), (int)(540 * ds));
+    // (never above the window it opened with: a minimum past the screen would push it out again)
+    SDL_SetWindowMinimumSize(L.win, SDL_min((int)(960 * ds), w), SDL_min((int)(540 * ds), h));
     return true;
 }
 
