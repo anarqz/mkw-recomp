@@ -523,7 +523,9 @@ static volatile int32_t ntouch_logged;
 int nvn2_native_image_touch(uint32_t handle) {
     pimage_t *o = pimg_of(handle);
     if (!o) return 0;
-    nvn_guest_written((uint64_t)(uintptr_t)o->mem, (uint64_t)o->stride * (uint64_t)o->h);
+    uint64_t n = (uint64_t)o->stride * (uint64_t)o->h;
+    if (gfx_backend()->host_rewrote) gfx_backend()->host_rewrote((uint64_t)(uintptr_t)o->mem, n);
+    else nvn_guest_written((uint64_t)(uintptr_t)o->mem, n);
     if (plat_inc32(&ntouch_logged) <= 16)   // the first ones: the first pixel the GPU should now see
         rt_log("nvn2: native image %d touched, pixel 0 %08x", (int)(o - pimg), *(const uint32_t *)o->mem);
     return 1;
