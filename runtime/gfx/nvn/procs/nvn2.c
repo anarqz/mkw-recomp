@@ -479,6 +479,23 @@ typedef struct {
 } pimage_t;
 static pimage_t pimg[PIMG_MAX];
 static volatile int32_t npimg;
+// The pixels live in guest memory of the runtime's own (mem_runtime_alloc: above the game's heap, write-watched),
+// carved out of 2 MiB regions: the back end tracks writes and resolves pools only below RT_ADDRESS_LIMIT, so memory
+// from plat_mem_alloc (above it on Windows) was never seen to change and the textures kept their first upload.
+static PlatMutex pimg_lock = PLAT_MUTEX_INIT;
+static uint64_t pimg_next, pimg_end;
+
+static uint8_t *pimg_alloc(uint64_t size) {
+    plat_mutex_lock(&pimg_lock);
+    if (pimg_end - pimg_next < size) {
+        uint64_t n = (size + 0x1fffff) & ~0x1fffffull, a = mem_runtime_alloc(n, "plugin native images");
+        if (a) pimg_next = a, pimg_end = a + n;
+    }
+    uint8_t *m = NULL;
+    if (pimg_end - pimg_next >= size) m = (uint8_t *)(uintptr_t)pimg_next, pimg_next += size;
+    plat_mutex_unlock(&pimg_lock);
+    return m;
+}
 void nvnp_nvnMemoryPoolInitialize(Cpu *c);   // nvn_api_core.c
 
 static pimage_t *pimg_of(uint32_t handle) {
@@ -498,7 +515,7 @@ uint32_t nvn2_native_image_create(int w, int h, void **pixels, int *row_bytes) {
     o->w = w, o->h = h;
     o->stride = ((uint32_t)w * 4 + 255) & ~255u;   // NVN's linear stride alignment, 32, rounded up for any device
     o->size = ((uint64_t)o->stride * (uint64_t)h + 0xffff) & ~0xffffull;
-    if (!(o->mem = plat_mem_alloc((size_t)o->size))) {
+    if (!(o->mem = pimg_alloc(o->size))) {
         rt_log("nvn2: native_image_create: no memory for %dx%d", w, h);
         return 0;
     }
@@ -570,9 +587,10 @@ static void nimg_texture(Cpu *c) {
     }
     uint64_t x1 = c->x[1];
     c->x[1] = (uint64_t)(uintptr_t)&b;
+    void *tex = arg_p(c, 0);
     nvnp_nvnTextureInitialize(c);   // ret_x: 1
     if (p)
-        rt_log("nvn2: native image %d: texture %p over pool %p, storage %p, stride %u", (int)(p - pimg), arg_p(c, 0),
+        rt_log("nvn2: native image %d: texture %p over pool %p, storage %p, stride %u", (int)(p - pimg), tex,
                (void *)&p->pool, (void *)p->mem, p->stride);
     c->x[1] = x1;
 }
