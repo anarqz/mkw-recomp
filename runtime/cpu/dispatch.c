@@ -142,7 +142,9 @@ static void apply_overrides(uint32_t *slot, uint64_t lo, uint64_t slots, uintptr
 }
 
 static void *table_alloc(uint64_t bytes) {
-    return plat_mem_alloc(bytes);   // zero pages, backed on first write
+    void *p = plat_mem_alloc(bytes);   // zero pages, backed on first write
+    plat_mem_name(p, bytes, "mkw dispatch");
+    return p;
 }
 
 static void table_seal(void *p, uint64_t bytes) {

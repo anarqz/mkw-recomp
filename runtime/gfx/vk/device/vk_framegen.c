@@ -335,7 +335,9 @@ int vk_fg_record(VkCommandBuffer cb, VkImage src, int sw, int sh, const int crop
 // refreshes. The game runs at 60 / iv fps (its present interval, from the measured frame interval); m frames of it
 // at hz fit when hz * iv / (60 * m) is a whole number. 20 fps x2 on 60 Hz is 40 fps, frames held 1, 2, 1, 2
 // refreshes: judder (Adrià 15/11/2026); 20 x3 and 15 x4 are 60, 15 x2 is 30. hz unknown: taken as fitting.
-// The game's interval in 1/60 s: what it asked NVN for (game.c), not a measure. The average in F.interval lags ~8
+// The game's interval in vsync ticks of MKW_LOGIC_HZ (1/60 s by default; game.c frame_logic_hz): what it asked NVN for
+// (game.c), not a measure. lhz120tt2: read as 1/60 s at 120 Hz, interval 6 (20 fps) looked like 10 fps and got 4x
+// on a 60 Hz screen, whose GPU time pushed the interval up again. The average in F.interval lags ~8
 // frames behind a change (fga2: 41.9 ms at 20 fps), and steps between display times grow when a frame is late: a
 // median of the last three read 5 at 15 fps, no factor fit and frame generation paused (fga3, frames 1670-1675).
 static int game_ticks(void) {
@@ -346,7 +348,7 @@ static int game_ticks(void) {
 static int fits(int m) {
     double hz = vk_present_refresh_hz();
     if (hz <= 0) return 1;
-    double k = hz * game_ticks() / (60.0 * m);
+    double k = hz * game_ticks() / ((double)frame_logic_hz() * m);
     return k >= 0.97 && fabs(k - round(k)) < 0.03 * round(k);
 }
 
@@ -359,11 +361,11 @@ static int mult_now(void) {
     if (!strcmp(v, "120")) {
         // Target 120 shown fps without speeding up the game: 60 x2 or 30 x4. Unlike Auto this does not ask a
         // 240 Hz screen for 240 fps. Below 30 game fps, the existing four-frame limit takes precedence.
-        int iv = game_ticks();
-        m = 2 * iv;
+        int iv = game_ticks(), n = frame_logic_hz();
+        m = (120 * iv + n / 2) / n;
         double hz = vk_present_refresh_hz();
         // Do not synthesize pictures the display cannot show; tolerate fractional rates such as 119.88 Hz.
-        int refresh_room = hz > 0 ? (int)(hz * iv / 60.0 + 0.03) : m;
+        int refresh_room = hz > 0 ? (int)(hz * iv / n + 0.03) : m;
         if (m > refresh_room) m = refresh_room;
     } else if (!strcmp(v, "auto") && !vrr()) {
         // the most frames that split the refreshes evenly; none (a 75 Hz screen: no game rate fits) shows the game's
@@ -500,9 +502,9 @@ int vk_fg_frame(VkImage src, int sw, int sh, const int crop[4], uint64_t at, VkI
         return 0;
     }
     if (dump) dump_write(F.fence[slot], n, *w, *h);
-    // the step from the game's interval in whole 1/60 s (the average lags ~8 frames behind a change of rate; under the
-    // turbo frame generation is off)
-    *step = (uint64_t)(game_ticks() * (1e9 / 60.0)) / (uint64_t)n;
+    // the step from the game's interval in whole vsync ticks (the average lags ~8 frames behind a change of rate;
+    // under the turbo frame generation is off)
+    *step = (uint64_t)(game_ticks() * (1e9 / frame_logic_hz())) / (uint64_t)n;
     F.frames++, F.made_total += (uint64_t)(n - 1);
     if (m != F.logged_mult || F.frames % 1800 == 0) {   // ~1 min at 30 fps
         F.logged_mult = m;

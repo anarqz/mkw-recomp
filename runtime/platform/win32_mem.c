@@ -45,6 +45,7 @@ int plat_mem_protect(uint64_t addr, uint64_t n, int prot) {
     return VirtualProtect((void *)(uintptr_t)addr, n, p, &old) != 0;
 }
 
+int plat_mem_drop(uint64_t addr, uint64_t n) { return (void)addr, (void)n, 0; }   // memory_spill.c: Linux only for now
 int plat_mem_poke(uint64_t addr, const void *src, size_t n) { return (void)addr, (void)src, (void)n, 0; }
 int plat_mem_peek(void *dst, uint64_t addr, size_t n) { return memcpy(dst, (const void *)(uintptr_t)addr, n), 1; }   // no read traps here
 

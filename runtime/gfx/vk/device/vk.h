@@ -294,6 +294,11 @@ void vk_mem_class_log(const VkPhysicalDeviceProperties *p, const VkPhysicalDevic
 void vk_mem_census(uint64_t frame);               // at each present: pool census and traffic, logged at frame 1800 and,
                                                   // with MKW_TRACE=perf, every 1800 frames
 void vk_mem_replay_log(uint64_t frames);          // a capture replay's end: the mirror and shadow summaries over its frames
+// MKW_MEM_POOL_LABELS=1 (vk_mem_pooldiag.c): the game's pool pages in RAM beside their copies, and the runtime's reads
+// of CPU_NO_ACCESS pool storage (what: 0 shadow fill, 1 texture upload, 2 fence write-back)
+int vk_pool_diag_on(void);
+void vk_pool_diag_note(uint32_t flags, int what, uint64_t bytes);
+void vk_pool_diag_log(uint64_t frame);
 // VRAM in use and its budget, summed over the DEVICE_LOCAL heaps. exact 1: VK_EXT_memory_budget (the whole process),
 // 0: this allocator's own allocations against the heap sizes. 0 when unknown.
 int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact);

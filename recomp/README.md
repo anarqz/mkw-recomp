@@ -19,7 +19,9 @@ Changes against the original:
 - `gen.py`: the `GENERATED_MARKER` (`MKW_RECOMP_…`) lives in the file itself instead of `tools/check_content.py`;
   `tools/git/pre-commit` watches for it. Every back edge of a loop without calls carries a compiler barrier
   (`__asm__ volatile("" ::: "memory")`): without it clang hoists out of the loop the loads another thread changes and
-  leaves a `jmp` to itself (`main+0x27ebb20`, which `spin_waits.py` does not recognise).
+  leaves a `jmp` to itself (`main+0x27ebb20`, which `spin_waits.py` does not recognise). `patches.h` carries the
+  patch file's SHA-256: the sites are compiled into the C and call the runtime's host functions, so
+  `tools/build/build.py` refuses generated C from another version of the file (run `gen.py` again).
 
 Usage: `uv run python recomp/gen.py --exefs game/exefs --jobs 8` (~2.5 min, 887 MB of C); `--out`
 and `--patches` default to the dump's version (1.0.0: `build/generated` with `patches-mkw.txt`, 1.8.0:

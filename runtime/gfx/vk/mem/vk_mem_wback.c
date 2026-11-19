@@ -210,6 +210,7 @@ void vk_gpu_written(uint64_t addr, uint64_t size) {
                 if (watch_hi) watch_event("write-back copied", addr, addr + size, 0, wb);
             } else if (watch_hi) watch_event("write-back trapped", addr, addr + size, 0, size);
         }
+        if (r) vk_pool_diag_note(r->flags, 2, wb);
         int defer = RT_KNOB_ON(wb_defer);
         if (defer && !plat_mutex_trylock(&shadow_lock)) {
             plat_mutex_lock(&sdone_lock);

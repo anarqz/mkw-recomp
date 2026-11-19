@@ -143,6 +143,26 @@ int plat_mem_reserve(uint64_t addr, uint64_t n, int watch) {
     return ok;
 }
 
+void plat_mem_name(const void *p, size_t n, const char *name) {
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#define PR_SET_VMA_ANON_NAME 0
+#endif
+    // The kernel copies the name; a kernel without CONFIG_ANON_VMA_NAME refuses it and the range stays "anon".
+    if (p && n) prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, (unsigned long)(uintptr_t)p, (unsigned long)n, name);
+}
+
+int64_t plat_mem_resident(const void *p, size_t n) {
+    unsigned char v[4096];   // 16 MiB of pages per call
+    int64_t in = 0;
+    for (size_t off = 0; off < n; off += sizeof v * 4096) {
+        size_t len = n - off < sizeof v * 4096 ? n - off : sizeof v * 4096;
+        if (mincore((char *)p + off, len, v)) return -1;
+        for (size_t i = 0; i < (len + 4095) / 4096; i++) in += (v[i] & 1) * 4096;
+    }
+    return in;
+}
+
 void *plat_mem_alloc(size_t n) {
     void *p = mmap(NULL, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     return p == MAP_FAILED ? NULL : p;
@@ -159,6 +179,8 @@ int plat_mem_decommit(uint64_t addr, uint64_t n) {
     ps_set(addr, n, PS_RESERVED);
     return 1;
 }
+
+int plat_mem_drop(uint64_t addr, uint64_t n) { return madvise((void *)(uintptr_t)addr, n, MADV_DONTNEED) == 0; }
 
 int plat_mem_protect(uint64_t addr, uint64_t n, int prot) {
     int p = prot == PLAT_PROT_RW ? PROT_READ | PROT_WRITE : prot == PLAT_PROT_READ ? PROT_READ : PROT_NONE;
