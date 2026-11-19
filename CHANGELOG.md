@@ -4,6 +4,30 @@ Each version's section is that release's notes: `tools/build/notes.py` puts it i
 updating, known issues, reporting) for the GitHub release. A section has a summary paragraph, `### Changes` (each with
 its issue, #N), `### Tested` (what was run from the packages before publishing) and optionally `### Known issues`.
 
+## 0.1.15
+
+A fix for the Linux AppImage: 0.1.14's setup stopped at `check` for every player, new setups and updates alike.
+
+### Changes
+
+- **The setup from the Linux AppImage stopped at `check` (#632).** 0.1.14 compares the files of the setup's keys
+  with the package's list, and the AppImage reaches its tools through `setup/`, a link to its mount, while the list's
+  folder was the mount's real path: `ValueError: ... is not in the subpath of ...` on every setup. Both are compared
+  resolved now, with a test that runs through the link. Our release check ran the setup through the mount's path and
+  missed it; it now runs it through the link, as the start screen does. Windows was not affected.
+- **`logs/setup.log` no longer fills with thread stacks** in a healthy setup: the watchdog for a stopped setup
+  (#251, #506) now writes them only after two minutes without an event, not every two minutes from the start (a
+  12-minute setup carried ~1 000 lines of them, which read like an error).
+
+### Tested
+
+From the packages Actions built for this tag, before publishing:
+
+- The whole setup from the Linux AppImage through its `setup/` link, as the start screen runs it (12 threads, game
+  1.0.0), in about 10 minutes; its warm-up built all 13 630 shader libraries and compute pipelines with none failed.
+- The whole setup from the Windows zip (the 6-thread Windows PC, game 1.0.0); its warm-up built the same 13 630 with
+  none failed.
+
 ## 0.1.14
 
 Races at 60 fps on AMD cards under Linux (42.6 to 16.9 ms a frame on an RX 6700 XT), trees and bushes that no longer
@@ -271,7 +295,13 @@ generation target by @Hampter588, and the README in German by @andreknieriem. Th
 
 ### Tested
 
-TODO
+From the packages Actions built for this tag, before publishing:
+
+- The whole setup from the Linux AppImage (12 threads, game 1.0.0) in about 12 minutes; its warm-up built all 13 630
+  shader libraries and compute pipelines (761 compute) with none failed.
+- The whole setup from the Windows zip (the 6-thread Windows PC, game 1.0.0) in about 15 minutes; its warm-up built
+  the same 13 630 with none failed.
+- #596's autosave on a GTX 1050 Ti (45 s of race): its 4 saves came in the menus and the load, none in the race.
 
 
 ## 0.1.13
