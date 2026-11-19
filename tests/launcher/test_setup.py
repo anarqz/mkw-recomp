@@ -177,6 +177,51 @@ def test_fetch_update_package(
             assert out.stat().st_mode & 0o777 == 0o755
 
 
+@pytest.mark.parametrize("failure", ["incomplete", "reset"])
+def test_fetch_interrupted_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], failure: str,
+) -> None:
+    import hashlib
+    import http.client
+    import io
+
+    first, last = b"first chunk", b"last chunk"
+
+    class InterruptedResponse(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            if self.tell() == 0:
+                return super().read(size)
+            if failure == "incomplete":
+                raise http.client.IncompleteRead(b"", len(last))
+            raise ConnectionResetError("connection reset")
+
+    asset = {
+        "name": "mkw-recomp-v9.8.7-x86_64.AppImage",
+        "size": len(first + last),
+        "digest": "sha256:" + hashlib.sha256(first + last).hexdigest(),
+        "browser_download_url": "https://example.invalid/download",
+    }
+    monkeypatch.setattr(update, "latest_asset", lambda _: ("v9.8.7", asset))
+    monkeypatch.setattr(update, "get", lambda *_: InterruptedResponse(first))
+    monkeypatch.setattr(sys, "argv", ["update.py", "fetch", "--os", "linux", "--tag", "v9.8.7", "--dest", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as exited:
+        update.main()
+
+    assert exited.value.code == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"progress {len(first)} {asset['size']}"
+    assert len(lines) == 2 and lines[1].startswith("error fetch ")
+    assert not list(tmp_path.iterdir())
+
+    monkeypatch.setattr(update, "get", lambda *_: io.BytesIO(first + last))
+    update.main()
+    out = tmp_path / asset["name"]
+    assert out.read_bytes() == first + last
+    assert capsys.readouterr().out.splitlines()[-1] == f"ready {out.resolve()}"
+    assert list(tmp_path.iterdir()) == [out]
+
+
 def test_romfs_version_matches_main() -> None:
     # #315: 1.0.0's exefs/main with 1.8.0's RomFS passed the file count and crashed while warming up
     import versions
@@ -450,6 +495,39 @@ def test_copy_removes_other_versions_files(tmp_path: Path) -> None:
                                                                              "UI/Product_180.sarc.zs"]  # fmt: skip
     gamecopy.clear_dir(dst, dst / "Sub Dir/b")  # the source inside: kept
     assert (dst / "UI/Product_180.sarc.zs").is_file()
+
+
+def test_copy_keeps_installed_files_when_source_scan_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gamecopy
+
+    src, dst = tmp_path / "dump", tmp_path / "install"
+    blocked = src / "sub"
+    installed = dst / "sub/file.bin"
+    blocked.mkdir(parents=True)
+    installed.parent.mkdir(parents=True)
+    (blocked / "file.bin").write_bytes(b"new version")
+    installed.write_bytes(b"old version")
+    stale = dst / "stale.bin"
+    stale.write_bytes(b"stale")
+    scandir = os.scandir
+
+    def fail_subdirectory(path):
+        if Path(path) == blocked:
+            raise PermissionError("can't scan source subdirectory")
+        return scandir(path)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(os, "scandir", fail_subdirectory)
+        with pytest.raises(PermissionError, match="can't scan source subdirectory"):
+            gamecopy.copy_tree(src, dst, 1, "1.8.0", verify_existing=True)
+
+    assert installed.read_bytes() == b"old version"
+    assert stale.is_file()
+    gamecopy.copy_tree(src, dst, 1, "1.8.0", verify_existing=True)
+    assert installed.read_bytes() == b"new version"
+    assert not stale.exists()
 
 
 @pytest.fixture
