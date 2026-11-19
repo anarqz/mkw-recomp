@@ -297,10 +297,15 @@ def main() -> None:
     game = args.game.absolute()
     runtime = args.runtime.resolve() if args.runtime else game
     lock = hold_lock(game)  # noqa: F841 (held until exit)
-    if args.next:  # the player may be racing meanwhile: the game's threads go first; the tools inherit it
-        nextsetup.lower_priority()
-    else:  # the update an earlier --next run set up beside the played version, now that this one runs
-        nextsetup.promote(game, args.port)
+    try:
+        if args.next:  # the player may be racing meanwhile: the game's threads go first; the tools inherit it
+            nextsetup.lower_priority()
+            nextsetup.recover(game)
+        else:  # the update an earlier --next run set up beside the played version, now that this one runs
+            nextsetup.promote(game, args.port)
+    except OSError as e:
+        emit("error", "io", e)
+        sys.exit(1)
     # the played version's outputs promote set aside, deleted beside this run's steps (joined at its end)
     removing = Beside("remove-old", lambda _: nextsetup.remove_old(game)) if not args.next else None
     state = load_state(game)
