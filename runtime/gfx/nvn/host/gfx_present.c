@@ -63,6 +63,18 @@ void gfx_window_focus_changed(int in) {
     plat_inc32(&g_focus_msgs);
 }
 
+// A plugin's overlay covers the game (MkwPluginApi.focus_set(0, ..)), as the console's HOME menu does: the game hears
+// out of focus until the hold ends and is suspended if it lets the console do that (ov_system.c oe_hold_focus), and
+// the output is silent meanwhile (audio_mixer.c), with any MKW_BACKGROUND_MUTE.
+static volatile int32_t g_focus_hold;
+int gfx_window_focus_hold(int out, int suspend) {
+    out = out != 0;
+    if (plat_xchg32(&g_focus_hold, out) != out)
+        rt_log("gfx: a plugin %s", out ? "holds the game out of focus" : "gives the focus back to the window");
+    return oe_hold_focus(out, suspend);
+}
+int gfx_window_focus_held(void) { return g_focus_hold; }
+
 // The window was closed: the process ends with it, as in MNG, once a save Commit still running in the background is
 // done.
 void gfx_window_closed(void) {

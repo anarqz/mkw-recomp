@@ -8,6 +8,7 @@
 enum { OE_MSG_FOCUS_STATE_CHANGED = 15, OE_MSG_OPERATION_MODE_CHANGED = 30, OE_MSG_PERFORMANCE_MODE_CHANGED = 31 };
 void oe_push_message(uint32_t message);                   // ov_system.c
 void oe_set_focus(int in_focus);                          // ov_system.c: GetCurrentFocusState; MKW_ASSUME_FOCUS pins 1
+int oe_hold_focus(int out, int suspend);                  // ov_system.c: a plugin holds the game out of focus; 1 suspended
 typedef struct { uint64_t alloc, free, realloc, user; } OvNvAllocator;
 typedef struct { OvNvAllocator graphics, devtools; uint64_t memory, memory_size; int initialized; } OvNvState;
 const OvNvState *ov_nv_state(void);                        // ov_gfx.c
@@ -23,6 +24,8 @@ void gfx_vsync_bind(uint64_t system_event);                // nn::vi vsync event
 int gfx_hdr_output(uint16_t *peak, uint16_t *white);       // 1: the window shows HDR10 (peak, paper white nits)
 void gfx_hdr_to_srgb8(const uint8_t *in, uint8_t *out, size_t px, int a2r);   // 10-bit PQ to sRGB bytes at paper white
 int gfx_window_focused(void);
+int gfx_window_focus_hold(int out, int suspend);   // MkwPluginApi.focus_set: out of focus and silent while held; 1 suspended
+int gfx_window_focus_held(void);
 int gfx_window_lines(void);   // lines of the picture the window will show (monitor in fullscreen); 0 unknown
 int gfx_window_shape(int *w, int *h);   // its width and lines; 0 unknown (w and h then untouched)
 

@@ -11,6 +11,7 @@
 
 #include "cfg.h"
 #include "dispatch.h"
+#include "gfx.h"
 #include "plugin_dispatch.h"
 #include "host.h"
 #include "mkw_plugin.h"
@@ -286,6 +287,14 @@ void plugins_frame_captured(const uint8_t *rgba, int w, int h) {
     plat_xchg32(&frame_state, 0);
 }
 
+// ---- version 4, later: the plugin's overlay covers the game (focus, with the console's suspension), the game's end
+static int api_focus_set(int in_focus, int suspend) { return gfx_window_focus_hold(!in_focus, suspend); }
+
+static void api_quit(void) {
+    rt_log("plugin: the game's end asked (MkwPluginApi.quit)");
+    gfx_window_request_close();
+}
+
 // gfx/nvn/procs/nvn2.c: images a plugin fills (version 3)
 uint32_t nvn2_native_image_create(int w, int h, void **pixels, int *row_bytes);
 int nvn2_native_image_touch(uint32_t handle);
@@ -317,6 +326,8 @@ static const MkwPluginApi api_template = {
     .input_filter = api_input_filter,
     .menu_open = api_menu_open,
     .frame_capture = api_frame_capture,
+    .focus_set = api_focus_set,
+    .quit = api_quit,
 };
 
 // A plugin that declines or fails to load is told to the player too: the mod they enabled does nothing this run.
