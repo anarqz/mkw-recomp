@@ -1,0 +1,58 @@
+name: nup layered titles (test build)
+
+# A test build of feat/nup-layered-titles for a local run with an Eglantine .nup, before its pull request: the Windows
+# zip exactly as release.yml's windows job makes it, kept as a run artifact. Lives only on ci/nup-layered-build.
+on:
+  push:
+    branches: [ci/nup-layered-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VMA_URL: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.4.0/include/vk_mem_alloc.h
+  VMA_SHA256: 8487b7995ad3b263eb73bc5b9a77d71aa69b6bef5d58a715c02d2663afd81f1a
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed git ccache ninja cmake binutils uv python 7zip
+      - uses: actions/checkout@v7
+      - name: ccache in the checkout, kept between runs (build.py compiles through it when installed)
+        run: echo "CCACHE_DIR=$PWD/.ccache" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.sha }}
+          restore-keys: ccache-windows-
+      - name: Git trusts the checkout (build.py's version comes from git describe)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v6
+        with:
+          path: build/win
+          key: windeps-${{ hashFiles('tools/build/windeps.py') }}
+      - uses: actions/cache@v6
+        with:
+          path: build/dist/dl
+          key: dist-dl-windows-${{ hashFiles('tools/build/dist.py') }}
+      - name: llvm-mingw and the Windows libraries
+        run: uv run tools/build/windeps.py
+      - name: mkw.exe
+        run: uv run tools/build/build.py --target windows --dist --runtime-only
+      - uses: actions/cache@v6
+        with:
+          path: build/dist/dl/llvm-*
+          key: llvm-clang-windows-${{ hashFiles('tools/build/llvm_clang.py') }}
+      - name: Setup tools
+        run: uv run tools/build/dist.py --target windows
+      - name: Zip
+        run: uv run tools/build/release.py --target windows --version "0.1.16-mkwmp-test.${GITHUB_SHA::7}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: build/release/*.zip
+          retention-days: 7
