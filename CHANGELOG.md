@@ -4,6 +4,34 @@ Each version's section is that release's notes: `tools/build/notes.py` puts it i
 updating, known issues, reporting) for the GitHub release. A section has a summary paragraph, `### Changes` (each with
 its issue, #N), `### Tested` (what was run from the packages before publishing) and optionally `### Known issues`.
 
+## 0.1.16-mkwmp
+
+The MKWMP release line of mkw-recomp (fork anarqz/mkw-recomp): upstream 0.1.16 as released, plus plugin API 4, which
+MKWMP's mod (`mods/mkwmp`) uses for its overlay. Not an upstream release: report problems here, not to
+adriadam10/mkw-recomp.
+
+### Changes
+
+- **Everything of upstream 0.1.16** (the section below): plugin API 2 and 3 are upstream's now (#659, #660), and so is
+  the layered `.nup` reader (#704).
+- **Plugin API 4** (`runtime/plugin/mkw_plugin.h`, `MKW_PLUGIN_API_VERSION 4`), three members after version 3's:
+  `input_filter` (a plugin sees and changes each player's pad before the runtime's menu shortcut and the game read
+  it), `menu_open` (opens or closes the in-game menu) and `frame_capture` (the next shown frame, scaled down, as
+  RGBA). A plugin written for version 3 loads unchanged.
+- **The game code id is upstream 0.1.16's (`c9bbcb75a9ac9a49`)**, not 0.1.15-mkwmp's (`c0dd6cf12c07c23a`): version 4
+  adds nothing under `runtime/cpu`, and the declarations 0.1.15-mkwmp kept out of `runtime/cpu/dispatch.h` are
+  upstream's there now. Coming from 0.1.15-mkwmp, the setup builds the game code once more; a game set up with
+  upstream 0.1.15 or 0.1.16 keeps its game code.
+- **The start screen's updater checks this fork's releases** (`MKW_UPDATE_REPO` still overrides it), as in
+  0.1.15-mkwmp: an upstream release would drop the plugin API that `mods/mkwmp` needs.
+- Fork-only CI workflows build this runtime and MKWMP's mod against it (test artifacts, never released).
+
+### Tested
+
+### Known issues
+
+- Plugin API 4 is this fork's, not upstream's: a mod that uses it runs with those parts off on upstream's releases.
+
 ## 0.1.16
 
 A package for CPUs without AVX2, a Keyboard and mouse switch and a LAN network row in the settings, less memory in a
@@ -68,6 +96,41 @@ updates in `.nup` by @anarqz, blurred NSFW mods on GameBanana by @SavageCore. Th
 ### Tested
 
 TODO
+## 0.1.15-mkwmp
+
+The MKWMP release line of mkw-recomp (fork anarqz/mkw-recomp): upstream main at 7e49ba8 (0.1.15 and 17 commits after
+it) with a newer native plugin API, which MKWMP's mod (`mods/mkwmp`) needs. Not an upstream release: report problems
+here, not to adriadam10/mkw-recomp.
+
+### Changes
+
+- **Plugin API 3** (`runtime/plugin/mkw_plugin.h`, `MKW_PLUGIN_API_VERSION 3`). Upstream 0.1.15 ships API 1.
+  - Version 2: a mod's options page in the start screen (Mods > mod > Options, `mkw_mod_page`), the mod's own settings
+    (`setting_get` / `setting_set`), the player's profile name and the language, tabs in the in-game settings
+    (`settings_tab`) and a callback when the game exits (`on_exit`).
+  - Version 3: native images a plugin draws into (`native_image_create`, `native_image_touch`). Their pixels live in
+    guest memory the runtime watches (`mem_runtime_alloc`), so the Vulkan backend uploads every frame touched, also over
+    a texture the GPU had rendered.
+- **The game code id is kept at 0.1.13's (`c0dd6cf12c07c23a`).** The plugin's dispatch entries are declared outside
+  `runtime/cpu` (`runtime/plugin/plugin_dispatch.h`), so a game already set up with 0.1.13 needs no new
+  `mkwgame.dll`/`mkwgame.so`. Official 0.1.14 and 0.1.15 have another id: coming from them, press **Set up** once
+  and the start screen builds the game code again.
+- **A mod both enabled and passed with `--mod` loads once.**
+- **The start screen's updater checks this fork's releases** (`MKW_UPDATE_REPO` still overrides it): an upstream
+  release would drop the plugin API that `mods/mkwmp` needs.
+- Fork-only CI workflows build MKWMP's mod against this runtime (test artifacts, never released).
+
+### Tested
+
+- The fork's plugin and runtime tests in CI on Linux and Windows for every branch merged here.
+- Windows, live, with MKWMP's mod: the options page, the in-game MKWMP and Voice chat tabs, the seat client and plugin
+  API 3's native images (camera frames reaching the game's textures), on the 0.1.15 base (upstream 23ff698).
+- Not run before publishing: the 17 upstream commits after 0.1.15 (memory spilling, Vulkan descriptor writes on the
+  recorder thread, logic-rate groundwork) with these changes, or the whole setup from these packages.
+
+### Known issues
+
+- Plugin APIs 2 and 3 are this fork's proposal, not upstream's: a mod that uses them runs on this release line only.
 
 ## 0.1.15
 
