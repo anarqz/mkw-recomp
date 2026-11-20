@@ -17,7 +17,9 @@ adriadam10/mkw-recomp.
 - **Plugin API 4** (`runtime/plugin/mkw_plugin.h`, `MKW_PLUGIN_API_VERSION 4`), three members after version 3's:
   `input_filter` (a plugin sees and changes each player's pad before the runtime's menu shortcut and the game read
   it), `menu_open` (opens or closes the in-game menu) and `frame_capture` (the next shown frame, scaled down, as
-  RGBA). A plugin written for version 3 loads unchanged.
+  RGBA); then `focus_set` (the game is told it is out of focus, as a console's HOME menu does, and the runtime
+  suspends it when the game's own focus mode allows that: offline yes, while it uses the network no) and `quit` (the
+  menu's Quit path: saves flushed, then exit). A plugin written for version 3 loads unchanged.
 - **The game code id is upstream 0.1.16's (`c9bbcb75a9ac9a49`)**, not 0.1.15-mkwmp's (`c0dd6cf12c07c23a`): version 4
   adds nothing under `runtime/cpu`, and the declarations 0.1.15-mkwmp kept out of `runtime/cpu/dispatch.h` are
   upstream's there now. Coming from 0.1.15-mkwmp, the setup builds the game code once more; a game set up with
@@ -27,6 +29,14 @@ adriadam10/mkw-recomp.
 - Fork-only CI workflows build this runtime and MKWMP's mod against it (test artifacts, never released).
 
 ### Tested
+
+- CI on this tag's parents: the Windows runtime and MKWMP's mod built against it (mkwmp-camera, runs 44804209329 and
+  44807621631), and the overlay branch's test builds (overlay-api4-nup).
+- Windows, live, with MKWMP's mod on the same API 4 changes over the upstream 0.1.16 base (game 1.8.0, game code
+  `c9bbcb75a9ac9a49`): the input filter (Guide, Select+Start, Select held), the frame capture behind the launcher's
+  overlay, and the return to the game.
+- Not run before publishing: `focus_set` / `quit` live, online play on this exact build, the whole setup from these
+  packages, and Linux / Steam Deck.
 
 ### Known issues
 
