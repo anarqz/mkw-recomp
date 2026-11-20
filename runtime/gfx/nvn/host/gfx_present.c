@@ -566,11 +566,11 @@ void vk_present_screen_shot(const char *path) {
     __atomic_store_n(&g_screen_on, 1, __ATOMIC_RELEASE);
 }
 
-// The captured swapchain image as a PNG (the menu's test hook), RGBA with opaque alpha.
-static void save_capture(const char *path) {
+// The captured swapchain image as RGBA with opaque alpha (sRGB also on an HDR display); the caller frees it.
+static uint8_t *capture_rgba(void) {
     size_t n = (size_t)g_cap_w * (size_t)g_cap_h * 4;
     uint8_t *px = malloc(n);
-    if (!px) return;
+    if (!px) return NULL;
     int bgra = g_sc_fmt == VK_FORMAT_B8G8R8A8_UNORM || g_sc_fmt == VK_FORMAT_B8G8R8A8_SRGB;
     if (g_sc_hdr) gfx_hdr_to_srgb8(g_cap_ptr, px, n / 4, g_sc_fmt == VK_FORMAT_A2R10G10B10_UNORM_PACK32);
     else for (size_t i = 0; i < n; i += 4) {
@@ -579,6 +579,13 @@ static void save_capture(const char *path) {
         px[i + 2] = g_cap_ptr[i + (bgra ? 0 : 2)];
         px[i + 3] = 255;
     }
+    return px;
+}
+
+// The captured swapchain image as a PNG (the menu's test hook).
+static void save_capture(const char *path) {
+    uint8_t *px = capture_rgba();
+    if (!px) return;
     rt_write_png(path, px, (uint32_t)g_cap_w, (uint32_t)g_cap_h);
     free(px);
     rt_log("gfx: swapchain shot %s (%dx%d)", path, g_cap_w, g_cap_h);
@@ -663,7 +670,8 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     int overlay = src && g_sc_view[idx] &&
                   menu_overlay_frame(__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), &mt, &menu_shot);
     if (!menu_shot && __atomic_exchange_n(&g_screen_on, 0, __ATOMIC_ACQ_REL)) menu_shot = g_screen_path;
-    int cap = src && (g_capture || menu_shot) && ensure_capture_buffer();
+    int plugin_shot = plugins_frame_wanted();   // MkwPluginApi.frame_capture: this frame, as the player sees it
+    int cap = src && (g_capture || menu_shot || plugin_shot) && ensure_capture_buffer();
     int thumb = src && g_th_n && ensure_thumbs();
 
     VkCommandBuffer cb = g_cb[slot];
@@ -793,6 +801,11 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
         g_cap_h = (int)g_sc_ext.height;
         g_cap_valid = 1;
         if (menu_shot) save_capture(menu_shot);
+        if (plugin_shot) {
+            uint8_t *px = capture_rgba();
+            if (px) plugins_frame_captured(px, g_cap_w, g_cap_h);
+            free(px);
+        }
     }
 out:
     plat_rmutex_unlock(&g_pl);
