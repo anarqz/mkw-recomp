@@ -593,7 +593,7 @@ static void save_capture(const char *path) {
     if (g_sc_hdr && cfg_get("MKW_SCREEN_RAW") && *cfg_get("MKW_SCREEN_RAW") == '1') {
         char raw[600];
         snprintf(raw, sizeof raw, "%s.raw", path);
-        plat_file_write(raw, g_cap_ptr, n);
+        plat_file_write(raw, g_cap_ptr, (size_t)g_cap_w * (size_t)g_cap_h * 4);
     }
     rt_log("gfx: swapchain shot %s (%dx%d)", path, g_cap_w, g_cap_h);
 }
