@@ -1,0 +1,106 @@
+name: SAURON fix (test build)
+
+# A test build of fix/wine-shadow-default with fix/wine-gamepad-rescan for one run under Proton on NVIDIA (SAURON):
+# mkw.exe exactly as release.yml's windows job builds it, kept as a run artifact, plus the Linux runtime build and the
+# setup tests, so the change is known to compile on both systems. Lives only on ci/sauronfix-build.
+# The exe replaces the one of an installed 0.1.16-mkwmp.1, so it must say that version (the start screen sets up
+# again when setup-state.json's "port" differs): a local tag on HEAD, never pushed, makes git describe say it.
+on:
+  push:
+    branches: [ci/sauronfix-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VMA_URL: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.4.0/include/vk_mem_alloc.h
+  VMA_SHA256: 8487b7995ad3b263eb73bc5b9a77d71aa69b6bef5d58a715c02d2663afd81f1a
+  PORT_TAG: v0.1.16-mkwmp.1
+  GAME_ID: c9bbcb75a9ac9a49   # the installed mkwgame.dll's: the runtime change must keep it
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed git ccache ninja cmake binutils uv python 7zip
+      - uses: actions/checkout@v7
+      - name: ccache in the checkout, kept between runs (build.py compiles through it when installed)
+        run: echo "CCACHE_DIR=$PWD/.ccache" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.sha }}
+          restore-keys: ccache-windows-
+      - name: Git trusts the checkout; the installed version's tag on HEAD, local only
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git tag -f "$PORT_TAG" HEAD
+          git describe --tags --always --dirty
+      - uses: actions/cache@v6
+        with:
+          path: build/win
+          key: windeps-${{ hashFiles('tools/build/windeps.py') }}
+      - name: llvm-mingw and the Windows libraries
+        run: uv run tools/build/windeps.py
+      - name: mkw.exe
+        run: uv run tools/build/build.py --target windows --dist --runtime-only
+      - name: The game id and the version did not change
+        run: |
+          test "$(cat build/dist/windows/mkwgame.id)" = "$GAME_ID"
+          strings build/dist/windows/mkw.exe | grep -x "${PORT_TAG#v}"
+          sha256sum build/dist/windows/mkw.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mkw-exe-sauronfix
+          path: |
+            build/dist/windows/mkw.exe
+            build/dist/windows/mkwgame.id
+          retention-days: 7
+
+  linux:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed git ccache clang lld llvm ninja make cmake pkgconf expat binutils uv python
+      - uses: actions/checkout@v7
+      - name: Git trusts the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: VMA header
+        run: |
+          mkdir -p scratchpad/vma
+          curl -sSfL -o scratchpad/vma/vk_mem_alloc.h "$VMA_URL"
+          echo "$VMA_SHA256  scratchpad/vma/vk_mem_alloc.h" | sha256sum -c -
+      - uses: actions/cache@v6
+        with:
+          path: build/sysroot
+          key: sysroot-${{ hashFiles('tools/build/sysroot.py') }}
+      - name: Steam Runtime sysroot (glibc 2.31)
+        run: uv run tools/build/sysroot.py
+      - name: Runtime and launcher (no game)
+        run: uv run tools/build/build.py --dist --runtime-only --sysroot build/sysroot
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Lint
+        run: uv run ruff check tools sm86
+      - name: Docs match the repo
+        run: uv run tools/docs/check.py
+      - name: Every setting has its row
+        run: uv run tools/git/cfg_rows.py
+      - name: Setup command lines (no game)
+        run: uv run pytest tests -q
+
+  setup-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Setup command lines (no game)
+        run: uv run pytest tests -q
