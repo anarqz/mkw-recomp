@@ -232,7 +232,23 @@ static void mirror_mode(int discrete) {
     if (freeze_idle < 0) freeze_idle = 0;
     const char *sh = cfg_get("MKW_SHADOW");
 #ifdef _WIN32
-    shadow_on = sh && *sh && strcmp(sh, "0");
+    // Under Wine/Proton shadow storage is the default, as on Linux: Wine's write watch (MEM_WRITE_WATCH, which the
+    // guest heap is reserved with) takes the write permission off the watched pages, and NVIDIA's driver refused the
+    // import of every pool, VK_ERROR_OUT_OF_HOST_MEMORY (RTX 3070, 580.196.07, Proton 11, Debian 12, 21/11/2026: 499
+    // of 499 refused, each then given a shadow copy by import_pool's fallback). Windows itself keeps the imports.
+    const char *wine = plat_wine_version();
+    shadow_on = sh && *sh ? strcmp(sh, "0") != 0 : wine != NULL;
+    if (wine) {
+        long maps, max_maps;
+        plat_map_count(&maps, &max_maps);
+        rt_log("mem: under Wine %s: shadow storage %s; %ld memory mappings, vm.max_map_count %ld", wine,
+               sh && *sh ? "as MKW_SHADOW says" : "by default (MKW_SHADOW=0: imports)", maps, max_maps);
+        // Wine's write watch and the runtime's page protections split the guest heap into a mapping per run of pages;
+        // past the kernel's limit every mmap and mprotect fails, the driver's own too (SteamOS sets 2147483642).
+        if (max_maps > 0 && max_maps < 1048576)
+            rt_log("mem: vm.max_map_count %ld is low for this game under Wine: if it ends in a Vulkan error, raise it "
+                   "(sudo sysctl -w vm.max_map_count=2147483642)", max_maps);
+    }
 #else
     shadow_on = !sh || !*sh || strcmp(sh, "0");
 #endif

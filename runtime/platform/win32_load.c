@@ -229,6 +229,39 @@ void plat_process_memory(uint64_t *resident, uint64_t *private_bytes) {
         *resident = pm.WorkingSetSize, *private_bytes = pm.PrivateUsage;
 }
 
+const char *plat_wine_version(void) {
+    static volatile LONG done;
+    static const char *v;
+    if (!done) {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");   // in every process, never unloaded, nor its string
+        const char *(*get)(void) = nt ? (const char *(*)(void))(void *)GetProcAddress(nt, "wine_get_version") : NULL;
+        v = get ? get() : NULL;
+        InterlockedExchange(&done, 1);
+    }
+    return v;
+}
+
+static long count_lines(const char *path, int first_number) {
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    char line[512];
+    long n = 0;
+    if (first_number) n = fgets(line, sizeof line, f) ? atol(line) : -1;
+    else
+        while (fgets(line, sizeof line, f))
+            if (strchr(line, '\n')) n++;
+    fclose(f);
+    return n;
+}
+
+// Under Wine the process is a Linux one, and its /proc is on the Z: drive (Wine maps / there by default).
+void plat_map_count(long *maps, long *max_maps) {
+    *maps = *max_maps = -1;
+    if (!plat_wine_version()) return;
+    *maps = count_lines("Z:\\proc\\self\\maps", 0);
+    *max_maps = count_lines("Z:\\proc\\sys\\vm\\max_map_count", 1);
+}
+
 void plat_heap_trim(void) { _heapmin(); }
 
 void plat_heap_stats(uint64_t *in_use, uint64_t *free_bytes, uint64_t *mapped) { *in_use = *free_bytes = *mapped = 0; }

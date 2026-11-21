@@ -48,19 +48,24 @@ static AddrOverride *g_ovr;
 static int g_novr, g_cap_ovr;
 
 void rt_fatal(const char *fmt, ...) {
+    // One write: in three, another thread's line could land between "FATAL: " and the message, and the message was lost
+    // (mkw.log under Proton, 21/11/2026: "FATAL: [host] vk: pool ...: host memory import failed (-1)" and a blank line).
+    char msg[1024];
     va_list ap;
     va_start(ap, fmt);
-    rt_log_raw("FATAL: ", 7);
-    rt_vlogf(fmt, ap);
-    rt_log_raw("\n", 1);
+    vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    // whether the system was out of memory then: a fatal from a failed allocation reads the same otherwise
+    rt_logf("FATAL: %s\n", msg);
+    // whether the system was out of memory then: a fatal from a failed allocation reads the same otherwise. The mappings:
+    // past vm.max_map_count every mmap fails, the Vulkan driver's too, with plenty of memory free.
     uint64_t res, prv;
     float used, total, proc;
+    long maps, max_maps;
     plat_process_memory(&res, &prv);
     plat_mem_info(&used, &total, &proc);
-    rt_log("FATAL: memory: process %.0f MiB resident, %.0f MiB private; system %.0f of %.0f MiB in use", res / 1048576.0,
-           prv / 1048576.0, used, total);
+    plat_map_count(&maps, &max_maps);
+    rt_log("FATAL: memory: process %.0f MiB resident, %.0f MiB private; system %.0f of %.0f MiB in use; %ld mappings "
+           "of vm.max_map_count %ld", res / 1048576.0, prv / 1048576.0, used, total, maps, max_maps);
     fflush(stdout);
     fflush(stderr);
     _Exit(70);

@@ -378,8 +378,10 @@ VkImageView vk_exec_target_view(const VkTexImage *img, VkFormat format, VkImageV
         if (!blocks && format != img->format)   // the sRGB twin: not the image's STORAGE usage (VUID usage-02275)
             use.usage = img->usage & ~(VkImageUsageFlags)VK_IMAGE_USAGE_STORAGE_BIT;
         if (blocks || format != img->format) ci.pNext = &use;   // not the BC image's sampling and transfer usages
-        if (vkCreateImageView(vk_ctx()->device, &ci, NULL, &view) != VK_SUCCESS)
-            rt_fatal("vk: render target view (format %d) could not be created", (int)format);
+        VkResult res = vkCreateImageView(vk_ctx()->device, &ci, NULL, &view);
+        if (res != VK_SUCCESS)
+            rt_fatal("vk: render target view (format %d, image format %d, type %d, level %u, layers %u+%u) could not be "
+                     "created (%d)", (int)format, (int)img->format, (int)type, level, base, layers, (int)res);
         ViewNode *n = malloc(sizeof *n);
         if (!n) rt_fatal("vk: out of memory");
         *n = (ViewNode){nvn_hm_get(&views_by_image, &img->image), k, view};

@@ -473,6 +473,13 @@ void plat_mem_info(float *used_mb, float *total_mb, float *proc_mb);
 // This process's memory in bytes: resident (the working set) and private (Windows: committed private bytes; Linux: the
 // resident anonymous pages). 0 when unknown.
 void plat_process_memory(uint64_t *resident, uint64_t *private_bytes);
+// Wine's version when the Windows build runs under Wine or Proton (ntdll exports wine_get_version there, never on
+// Windows itself), else NULL; the Linux build: NULL.
+const char *plat_wine_version(void);
+// The Linux process's memory mappings (lines of /proc/self/maps) and vm.max_map_count, the kernel's limit on them;
+// -1 where unknown. Read through Wine's Z: drive under Wine, -1 on Windows itself. Counting reads every line: not for
+// a hot path.
+void plat_map_count(long *maps, long *max_maps);
 // Hands the C heap's free pages back to the system after a large release of small blocks.
 void plat_heap_trim(void);
 // The C heap in bytes: in use, free inside it, and what it has mapped (all arenas); 0 when unknown (Windows).

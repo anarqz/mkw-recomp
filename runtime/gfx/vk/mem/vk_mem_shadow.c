@@ -20,7 +20,8 @@
 //   queried for written pages; pages stamped after a pool's sgen are copied in by the CPU.
 // - GPU -> guest: the GPU's writes stay pending from record time to their fence (vk_mem_wback.c); the CPU copies skip
 //   them meanwhile, or merge them by bytes where the range has a base (vk_mem_merge.c).
-// MKW_SHADOW=1/0 forces the mode on or off; the default is on for Linux.
+// MKW_SHADOW=1/0 forces the mode on or off; the default is on for Linux and for the Windows build under Wine/Proton
+// (vk_mem_class_log), off on Windows itself.
 int shadow_on;                                    // shadow mode: imported pools get shadow storage (vk_mem_class_log)
 // The syncs, write-backs and touches run for shadowed pools: on with shadow_on, and set once a pool in import mode
 // (Windows) takes a shadow because its import failed (import_pool). Read without a lock: a pool's first shadow is

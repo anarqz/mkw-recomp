@@ -553,6 +553,25 @@ void plat_process_memory(uint64_t *resident, uint64_t *private_bytes) {
     fclose(f);
 }
 
+const char *plat_wine_version(void) { return NULL; }
+
+void plat_map_count(long *maps, long *max_maps) {
+    *maps = *max_maps = -1;
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (f) {
+        char line[512];
+        long n = 0;
+        while (fgets(line, sizeof line, f))
+            if (strchr(line, '\n')) n++;
+        fclose(f);
+        *maps = n;
+    }
+    if ((f = fopen("/proc/sys/vm/max_map_count", "r"))) {
+        if (fscanf(f, "%ld", max_maps) != 1) *max_maps = -1;
+        fclose(f);
+    }
+}
+
 void plat_heap_trim(void) { malloc_trim(0); }
 
 // glibc 2.33's mallinfo2, looked up at run time: the release builds against glibc 2.31 (tools/build/sysroot.py),

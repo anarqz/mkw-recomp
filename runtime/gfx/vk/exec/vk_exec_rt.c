@@ -220,8 +220,10 @@ VkImageView view_of(VkExec *ex, const VkExecTarget *t) {
                                       .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
     if (t->blocks) ci.pNext = &use;   // not the BC image's sampling and transfer usages
     VkImageView view;
-    if (vkCreateImageView(vk_ctx()->device, &ci, NULL, &view) != VK_SUCCESS)
-        rt_fatal("vk: render target view (format %d, %ux%u) could not be created", (int)t->format, t->width, t->height);
+    VkResult res = vkCreateImageView(vk_ctx()->device, &ci, NULL, &view);
+    if (res != VK_SUCCESS)
+        rt_fatal("vk: render target view (format %d, %ux%u) could not be created (%d)", (int)t->format, t->width,
+                 t->height, (int)res);
     if (ex->nviews == ex->cap_views) {
         ex->cap_views = ex->cap_views ? ex->cap_views * 2 : 16;
         ex->views = realloc(ex->views, sizeof(ViewEnt) * (size_t)ex->cap_views);
