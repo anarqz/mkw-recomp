@@ -62,7 +62,7 @@ jobs:
       - name: Setup tools
         run: uv run tools/build/dist.py --target windows
       - name: Zip (a test build of this branch, named so it is not mistaken for a release)
-        run: uv run tools/build/release.py --target windows --version "0.1.16-mkwmp-test.${GITHUB_SHA::7}"
+        run: uv run tools/build/release.py --target windows --version "0.1.16-mkwmp.1-test.${GITHUB_SHA::7}"
       - uses: actions/upload-artifact@v7
         with:
           name: mkw-recomp-windows-main
