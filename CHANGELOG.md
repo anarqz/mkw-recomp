@@ -4,6 +4,58 @@ Each version's section is that release's notes: `tools/build/notes.py` puts it i
 updating, known issues, reporting) for the GitHub release. A section has a summary paragraph, `### Changes` (each with
 its issue, #N), `### Tested` (what was run from the packages before publishing) and optionally `### Known issues`.
 
+## 0.1.16-mkwmp.1
+
+The game's setup and its window now work under Wine/Proton (the Windows package on Linux, as MKWMP's launcher runs it
+on SteamOS). The plugin API (4) and the game code are 0.1.16-mkwmp's.
+
+### Changes
+
+- **The setup's compile step works under Wine/Proton.** zig.exe cannot use its cache there and compiles nothing
+  (`checking cache failed: manifest_create Unexpected` for every file, whatever the cache folder; SteamOS, Proton
+  11.0), so the setup stopped at "Building the game". `zig cc -###` still prints its `-cc1` line before that error:
+  `tools/prepare/fastcc.py` takes the line when the cache is zig's only error, so the package's `clang.exe` compiles
+  the game code as it does on Windows, and `zig lld-link` links it (it needs no cache). `logs/setup.log` says when
+  this happened.
+- **The shaders step works there too.** `sm86/spec/spec.py` built its helper DLL (`intercept_win.c`) with a plain
+  `zig cc`, which failed the same way: when zig fails only on its cache, the same `-cc1` line runs on `clang.exe`
+  (`fastcc.compile_c`). zig is still tried first, so nothing changes on Windows and Linux.
+- **The Windows build no longer asks SDL for its `x11` driver.** Under Proton on a Wayland desktop `mkw.exe` saw the
+  Linux session's `DISPLAY` and `WAYLAND_DISPLAY` beside Steam's variables and chose SDL's X11 driver, which the
+  Windows SDL does not have: `SDL video init failed (x11 not available)`, then `no Vulkan device`, for the setup's
+  prewarm (and the same code opens the game's window and the start screen). `cfg_steam_video_driver` is for the
+  Linux build only now. Before this version: `MKW_STEAM_X11=0`.
+- **The game code id stays `c9bbcb75a9ac9a49`** and no setup step's key changes: a game set up with 0.1.16-mkwmp (or
+  upstream 0.1.16) keeps its game code and its shaders. Against 0.1.16-mkwmp's Windows zip the sources that differ
+  are `setup\src\tools\prepare\fastcc.py` and `setup\src\sm86\spec\spec.py`, and `mkw.exe`; a new build also writes
+  `SDL3.dll` and `setup\lib\crt\*` again (same sources, not byte-identical).
+
+### Tested
+
+- SteamOS (ASUS ROG Xbox Ally X, 16 threads, Radeon 890M), Proton 11.0 in Steam Linux Runtime 4, a prefix
+  of its own, game 1.8.0 from its `.nup`: 0.1.16-mkwmp's Windows package with this version's `fastcc.py` and
+  `spec.py`, `prepare.py` from an empty folder to `done` in 1 307 s. generate 44 s; compile 258 s (396 units on
+  `clang.exe`, link 1.0 s, `mkwgame.dll` 214 MB, id `c9bbcb75a9ac9a49`); shaders 958 s (`spec.py` 21 s with NVIDIA's
+  downloads, `nvdisasm.exe` and the injected DLL; `extract.py` 528 s; `translate.py` 709 s on 15 workers with
+  `glslc.exe`, 11 605 programs); `renodx.py` 22 s; cleanup 20 s.
+- The prewarm there: 0.1.16-mkwmp's `mkw.exe --prewarm` failed on SDL's x11 driver as above, and with
+  `MKW_STEAM_X11=0` built 13 685 shader libraries in 43 s (RADV) and saved its pipeline cache. This version's
+  `mkw.exe` (CI build of e867560) in the same session, without that setting: `video driver windows`, the device
+  found, `--prewarm done` (from the caches of the run before).
+- `tests/launcher/test_fastcc.py` (10 tests, Linux): zig's line taken when the cache is its only error, refused with
+  another error beside it, and `compile_c`'s three ways.
+- CI: the Windows runtime and MKWMP's mod built against it (mkwmp-camera, runs 44841779810 and 44844140965).
+- Not run before publishing: the game itself under Proton (a race, the overlay), Game Mode, the whole setup on
+  Windows and on Linux from these packages (their paths did not change: zig compiles there and is tried first).
+
+### Known issues
+
+- Under Wine the setup's small-file steps are slow (`extract.py` 528 s from a `.nup`); the whole first setup took
+  22 min on the machine above.
+- Under Wine every process of the setup must run in the same container as its wineserver: a tool started from a
+  second Steam Linux Runtime container into a running prefix cannot write `nvdisasm.exe`'s memory (`cannot write the
+  DLL path into nvdisasm.exe: 5`).
+
 ## 0.1.16-mkwmp
 
 The MKWMP release line of mkw-recomp (fork anarqz/mkw-recomp): upstream 0.1.16 as released, plus plugin API 4, which
