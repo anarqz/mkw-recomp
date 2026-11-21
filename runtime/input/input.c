@@ -282,6 +282,8 @@ static void attach_virtual_pads(void) {
     rt_log("input: %d virtual gamepads (MKW_VIRTUAL_PADS)", n);
 }
 
+static void joysticks_log(const char *when);
+
 static void start(void) {
     binds_refresh();
     const char *e = cfg_get("MKW_INPUT");
@@ -294,9 +296,29 @@ static void start(void) {
         switch2_start();   // Switch 2 controllers over Bluetooth, as virtual gamepads (MKW_SWITCH2)
         scan_pads();
         input_power_start();   // its own thread: the low battery notice
-        if (!pad) rt_log("input: no gamepad (keyboard only until one is connected)");
+        if (!pad) {
+            rt_log("input: no gamepad (keyboard only until one is connected)");
+            joysticks_log("at start");
+        }
     }
     if (state == -1) state = 2;   // keyboard only
+}
+
+// What SDL saw when it found no gamepad: every joystick (a gamepad SDL has no mapping for is one), and the Steam
+// variables that decide whether Steam Input's virtual pad is ignored (SDL_gamepad.c SDL_ShouldIgnoreGamepad). Under lock.
+static void joysticks_log(const char *when) {
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetJoysticks(&n);
+    const char *allow = SDL_getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD");
+    const char *ignore = SDL_getenv("SDL_GAMECONTROLLER_IGNORE_DEVICES");
+    const char *info = SDL_getenv("SteamVirtualGamepadInfo");
+    rt_log("input: SDL %s: %d joysticks; SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=%s, IGNORE_DEVICES %s, "
+           "SteamVirtualGamepadInfo %s", when, n, allow ? allow : "(unset)", ignore && *ignore ? "set" : "(unset)",
+           info && *info ? info : "(unset)");
+    for (int i = 0; ids && i < n; i++)
+        rt_log("input:   joystick \"%s\" %04x:%04x%s", SDL_GetJoystickNameForID(ids[i]), SDL_GetJoystickVendorForID(ids[i]),
+               SDL_GetJoystickProductForID(ids[i]), SDL_IsGamepad(ids[i]) ? ", a gamepad" : ", no gamepad mapping");
+    SDL_free(ids);
 }
 
 static void stick_bits(uint64_t *b, int32_t x, int32_t y, int first) {
@@ -311,10 +333,55 @@ static void pick(int32_t *x, int32_t *y, int32_t kx, int32_t ky) {
     if (b > a) { *x = kx; *y = ky; }
 }
 
+// Under lock, state 1, while SDL has no joystick at all: start SDL's gamepad subsystem again, now and then. SDL's
+// Windows back end lists XInput and DirectInput devices once at its start and again only on a device-change message
+// (SDL_windowsjoystick.c: its thread waits in GetMessage, WINDOWS_JoystickDetect returns at once otherwise), so a pad
+// it missed at the start stays missing for the whole run: under Proton (SteamOS, the ROG Xbox Ally X) the game logged
+// "no gamepad" and never found Steam Input's virtual pad, which the launcher in the same prefix read through XInput.
+// With no joystick open nothing is lost by the restart (MKW_VIRTUAL_PADS and Switch 2 pads are joysticks: never then).
+// Every 3 s for the first minute, then every 30 s; MKW_PAD_REINIT=0 turns it off.
+static void reinit_when_none(uint64_t now_ms) {
+    static uint64_t first, next;
+    static int tries, logged;
+    if (pad) return;
+    for (int p = 1; p < INPUT_MAX_PLAYERS; p++)
+        if (extra[p]) return;
+    const char *off = cfg_get("MKW_PAD_REINIT");
+    if (off && !strcmp(off, "0")) return;
+    if (!first) first = now_ms, next = now_ms + 3000;
+    if (now_ms < next) return;
+    next = now_ms + (now_ms - first < 60000 ? 3000 : 30000);
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetJoysticks(&n);
+    SDL_free(ids);
+    if (n > 0) return;   // SDL knows a device: hotplug and scan_pads take it from here
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        state = 2;   // keyboard only, as a failed start
+        rt_log("input: SDL gamepad init failed on a restart (%s), keyboard only", SDL_GetError());
+        return;
+    }
+    tries++;
+    scan_pads();
+    if (pad) {
+        rt_log("input: the gamepad appeared after restarting SDL's gamepad subsystem (restart %d, %.1f s after the start)",
+               tries, (now_ms - first) / 1000.0);
+        joysticks_log("after the restart");
+    } else if (!logged) {
+        logged = 1;
+        rt_log("input: still no gamepad after restarting SDL's gamepad subsystem; trying again every few seconds");
+    }
+}
+
 // Under lock, state 1: look for new or lost gamepads once a second, then read every open one.
 static void pads_update(void) {
     uint64_t now_ms = plat_now_ns() / 1000000u;
-    if (now_ms >= next_scan) { next_scan = now_ms + RESCAN_MS; scan_pads(); }
+    if (now_ms >= next_scan) {
+        next_scan = now_ms + RESCAN_MS;
+        scan_pads();
+        reinit_when_none(now_ms);
+        if (state != 1) return;
+    }
     SDL_UpdateGamepads();
 }
 
