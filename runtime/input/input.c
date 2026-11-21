@@ -282,10 +282,82 @@ static void attach_virtual_pads(void) {
     rt_log("input: %d virtual gamepads (MKW_VIRTUAL_PADS)", n);
 }
 
+static void joysticks_log(const char *when);
+
+// Wine's version when the Windows build runs under Wine or Proton (ntdll exports wine_get_version there, never on
+// Windows itself), else NULL; on Linux always NULL. Under lock.
+static const char *wine_version(void) {
+#ifdef SDL_PLATFORM_WINDOWS
+    static int done;
+    static const char *v;
+    if (!done) {
+        done = 1;
+        SDL_SharedObject *nt = SDL_LoadObject("ntdll.dll");   // in every process: never unloaded, nor its string
+        const char *(*get)(void) = nt ? (const char *(*)(void))SDL_LoadFunction(nt, "wine_get_version") : NULL;
+        v = get ? get() : NULL;
+        if (!get) SDL_ClearError();   // Windows: SDL_LoadFunction's "not found" is no error of ours
+    }
+    return v;
+#else
+    return NULL;
+#endif
+}
+
+// Under Wine only: XInputGetState on slots 0-3, a bit set for each connected one; -1 without XInput. On the ROG Xbox
+// Ally X under Proton (SteamOS Game Mode, 0.1.16-mkwmp.1) SDL found no gamepad at its start and never after, while a
+// test plugin that only called XInputGetState from its own thread made SDL see Steam Input's pad in the same build
+// ("worked flawlessly", 21/11/2026): the XInput call is what brings the pad there. The DLL stays loaded, since Wine's
+// XInput keeps a thread of its own. Under lock.
+static int xinput_touch(void) {
+#ifdef SDL_PLATFORM_WINDOWS
+    typedef struct { uint32_t packet; uint16_t buttons; uint8_t lt, rt; int16_t lx, ly, rx, ry; } XState;   // XINPUT_STATE
+    static uint32_t (*get_state)(uint32_t, XState *);
+    static int loaded;
+    if (!loaded) {
+        loaded = 1;
+        static const char *const dlls[] = {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"};
+        for (int i = 0; i < 3 && !get_state; i++) {
+            SDL_SharedObject *x = SDL_LoadObject(dlls[i]);
+            if (!x) continue;
+            get_state = (uint32_t (*)(uint32_t, XState *))SDL_LoadFunction(x, "XInputGetState");
+            if (!get_state) SDL_UnloadObject(x);
+        }
+        SDL_ClearError();
+    }
+    if (!get_state) return -1;
+    int mask = 0;
+    for (uint32_t i = 0; i < 4; i++) {
+        XState st;
+        if (get_state(i, &st) == 0) mask |= 1 << i;   // ERROR_SUCCESS; ERROR_DEVICE_NOT_CONNECTED otherwise
+    }
+    return mask;
+#else
+    return -1;
+#endif
+}
+
+// The XInput slots of xinput_touch's result, for the log ("0 2", "none", "no XInput").
+static const char *xinput_slots(int mask, char *buf, size_t size) {
+    if (mask < 0) return "no XInput";
+    if (!mask) return "none";
+    size_t len = 0;
+    buf[0] = 0;
+    for (int i = 0; i < 4; i++)
+        if (mask & (1 << i)) len += (size_t)snprintf(buf + len, len < size ? size - len : 0, "%s%d", len ? " " : "", i);
+    return buf;
+}
+
 static void start(void) {
     binds_refresh();
     const char *e = cfg_get("MKW_INPUT");
     if (e && !strcmp(e, "none")) { state = -1; rt_log("input: disabled (MKW_INPUT=none)"); return; }
+    // Under Wine: XInput before SDL's gamepad subsystem starts (xinput_touch). MKW_PAD_XINPUT=0 leaves it out.
+    const char *wine = wine_version(), *xi = cfg_get("MKW_PAD_XINPUT");
+    if (wine && !(xi && !strcmp(xi, "0"))) {
+        char b[16];
+        rt_log("input: Wine %s: XInput before SDL's gamepad start, slots connected: %s", wine,
+               xinput_slots(xinput_touch(), b, sizeof b));
+    }
     input_wheel_hint();
     if (!SDL_Init(SDL_INIT_GAMEPAD)) { state = -1; rt_log("input: SDL gamepad init failed (%s), keyboard only", SDL_GetError()); }
     else state = 1;
@@ -294,9 +366,29 @@ static void start(void) {
         switch2_start();   // Switch 2 controllers over Bluetooth, as virtual gamepads (MKW_SWITCH2)
         scan_pads();
         input_power_start();   // its own thread: the low battery notice
-        if (!pad) rt_log("input: no gamepad (keyboard only until one is connected)");
+        if (!pad) {
+            rt_log("input: no gamepad (keyboard only until one is connected)");
+            joysticks_log("at start");
+        }
     }
     if (state == -1) state = 2;   // keyboard only
+}
+
+// What SDL saw when it found no gamepad: every joystick (a gamepad SDL has no mapping for is one), and the Steam
+// variables that decide whether Steam Input's virtual pad is ignored (SDL_gamepad.c SDL_ShouldIgnoreGamepad). Under lock.
+static void joysticks_log(const char *when) {
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetJoysticks(&n);
+    const char *allow = SDL_getenv("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD");
+    const char *ignore = SDL_getenv("SDL_GAMECONTROLLER_IGNORE_DEVICES");
+    const char *info = SDL_getenv("SteamVirtualGamepadInfo");
+    rt_log("input: SDL %s: %d joysticks; SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD=%s, IGNORE_DEVICES %s, "
+           "SteamVirtualGamepadInfo %s", when, n, allow ? allow : "(unset)", ignore && *ignore ? "set" : "(unset)",
+           info && *info ? info : "(unset)");
+    for (int i = 0; ids && i < n; i++)
+        rt_log("input:   joystick \"%s\" %04x:%04x%s", SDL_GetJoystickNameForID(ids[i]), SDL_GetJoystickVendorForID(ids[i]),
+               SDL_GetJoystickProductForID(ids[i]), SDL_IsGamepad(ids[i]) ? ", a gamepad" : ", no gamepad mapping");
+    SDL_free(ids);
 }
 
 static void stick_bits(uint64_t *b, int32_t x, int32_t y, int first) {
@@ -311,10 +403,62 @@ static void pick(int32_t *x, int32_t *y, int32_t kx, int32_t ky) {
     if (b > a) { *x = kx; *y = ky; }
 }
 
+// Under lock, state 1, while SDL has no joystick at all: start SDL's gamepad subsystem again, now and then. SDL's
+// Windows back end lists XInput and DirectInput devices once at its start and again only on a device-change message
+// (SDL_windowsjoystick.c: its thread waits in GetMessage, WINDOWS_JoystickDetect returns at once otherwise), so a pad
+// it missed at the start stays missing for the whole run: under Proton (SteamOS, the ROG Xbox Ally X) the game logged
+// "no gamepad" and never found Steam Input's virtual pad, which the launcher in the same prefix read through XInput.
+// With no joystick open nothing is lost by the restart (MKW_VIRTUAL_PADS and Switch 2 pads are joysticks: never then).
+// Every 3 s for the first minute, then every 30 s; MKW_PAD_REINIT=0 turns it off. Under Wine only (wine_version): the
+// restart runs on the thread that polls the input and holds the lock, and Windows itself sends SDL its device-change
+// messages, so there it would only cost a stall now and then to a player without a gamepad. XInput is asked again
+// before each restart (xinput_touch), the fallback should the first call at start have come too early.
+static void reinit_when_none(uint64_t now_ms) {
+    static uint64_t first, next;
+    static int tries, logged;
+    if (pad || !wine_version()) return;
+    for (int p = 1; p < INPUT_MAX_PLAYERS; p++)
+        if (extra[p]) return;
+    const char *off = cfg_get("MKW_PAD_REINIT");
+    if (off && !strcmp(off, "0")) return;
+    if (!first) first = now_ms, next = now_ms + 3000;
+    if (now_ms < next) return;
+    next = now_ms + (now_ms - first < 60000 ? 3000 : 30000);
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetJoysticks(&n);
+    SDL_free(ids);
+    if (n > 0) return;   // SDL knows a device: hotplug and scan_pads take it from here
+    const char *xi = cfg_get("MKW_PAD_XINPUT");
+    int xmask = xi && !strcmp(xi, "0") ? -1 : xinput_touch();
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        state = 2;   // keyboard only, as a failed start
+        rt_log("input: SDL gamepad init failed on a restart (%s), keyboard only", SDL_GetError());
+        return;
+    }
+    tries++;
+    scan_pads();
+    char b[16];
+    if (pad) {
+        rt_log("input: the gamepad appeared after restarting SDL's gamepad subsystem (restart %d, %.1f s after the start; "
+               "XInput slots connected: %s)", tries, (now_ms - first) / 1000.0, xinput_slots(xmask, b, sizeof b));
+        joysticks_log("after the restart");
+    } else if (!logged) {
+        logged = 1;
+        rt_log("input: still no gamepad after restarting SDL's gamepad subsystem (XInput slots connected: %s); trying "
+               "again every few seconds", xinput_slots(xmask, b, sizeof b));
+    }
+}
+
 // Under lock, state 1: look for new or lost gamepads once a second, then read every open one.
 static void pads_update(void) {
     uint64_t now_ms = plat_now_ns() / 1000000u;
-    if (now_ms >= next_scan) { next_scan = now_ms + RESCAN_MS; scan_pads(); }
+    if (now_ms >= next_scan) {
+        next_scan = now_ms + RESCAN_MS;
+        scan_pads();
+        reinit_when_none(now_ms);
+        if (state != 1) return;
+    }
     SDL_UpdateGamepads();
 }
 
