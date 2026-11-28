@@ -15,6 +15,7 @@
 #include <linux/userfaultfd.h>
 #include <pthread.h>
 #include <sched.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <spawn.h>
 #include <execinfo.h>
@@ -341,6 +342,10 @@ static long fault_err(const ucontext_t *u) { return u->uc_mcontext.gregs[REG_ERR
 #define UC_RET(u) (*(const uint64_t *)(uintptr_t)(u)->uc_mcontext.gregs[REG_RSP])
 #endif
 
+// plat_guard_run: the thread's innermost guard and the fault it took (fault_handler jumps back to it).
+static _Thread_local sigjmp_buf *guard_jb;
+static _Thread_local PlatCrash guard_why;
+
 static void fault_handler(int sig, siginfo_t *si, void *uc) {
     ucontext_t *u = uc;
     long err = fault_err(u);
@@ -351,6 +356,20 @@ static void fault_handler(int sig, siginfo_t *si, void *uc) {
     plat_fault_ret = (uint64_t)UC_RET(u);   // a leaf (libc memcpy): its caller
     if (sig == SIGSEGV && fault_hook && fault_hook((uint64_t)(uintptr_t)si->si_addr)) return;   // reads too: traps
     uintptr_t rip = (uintptr_t)UC_PC(u);
+    if (guard_jb) {   // inside plat_guard_run, in any module: the guarded call ends here, the process goes on
+        sigjmp_buf *jb = guard_jb;
+        Dl_info in = {0}, exe = {0};
+        int known = dladdr((void *)rip, &in) != 0;
+        int mkw = known && dladdr((void *)plat_crash_hook, &exe) && in.dli_fbase == exe.dli_fbase;
+        guard_why = (PlatCrash){sig == SIGSEGV ? "access violation" : sig == SIGBUS ? "bus error"
+                                : sig == SIGILL ? "illegal instruction" : "arithmetic exception",
+                                (uint32_t)sig, rip, known ? rip - (uintptr_t)in.dli_fbase : rip, -1, 0,
+                                !known ? "no module" : mkw ? "mkw" : "plugin", 0};
+        if (sig == SIGSEGV || sig == SIGBUS)
+            guard_why.access = (err & 16) ? 8 : (err & 2) ? 1 : 0, guard_why.addr = (uint64_t)(uintptr_t)si->si_addr;
+        guard_jb = NULL;
+        siglongjmp(*jb, 1);   // off the signal stack, with the signal mask of the guard
+    }
     Dl_info at = {0}, self = {0};
     // Ours: this executable, the game code library (mkwgame.so), or no module at all (a jump to a wild address)
     int in_module = dladdr((void *)rip, &at) != 0, ours_exe = 0, ours_game = 0;
@@ -387,6 +406,23 @@ static void fault_handler(int sig, siginfo_t *si, void *uc) {
         backtrace_symbols_fd(frames, backtrace(frames, 32), 2);   // the host call into the library
     }
     signal(sig, SIG_DFL);   // returns into the faulting instruction, which faults again with the default action
+}
+
+static void fault_install(void);
+
+int plat_guard_run(void (*fn)(void *arg), void *arg, PlatCrash *why) {
+    sigjmp_buf jb;
+    sigjmp_buf *outer = guard_jb;
+    fault_install();
+    if (sigsetjmp(jb, 1)) {
+        guard_jb = outer;
+        if (why) *why = guard_why;
+        return 0;
+    }
+    guard_jb = &jb;
+    fn(arg);
+    guard_jb = outer;
+    return 1;
 }
 
 static void fault_install(void) {

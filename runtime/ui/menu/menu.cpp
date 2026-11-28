@@ -186,6 +186,7 @@ static void make_context(void) {
 
 static void vk_down(void) {
     if (!g_vk_ok) return;
+    plugins_overlay_vk_lost();   // the plugins' texture ids are the back end's descriptor sets
     ImGui_ImplVulkan_Shutdown();
     g_vk_ok = 0;
     g_font_scale = 0;
@@ -206,9 +207,11 @@ static int vk_up(const MenuTarget *t) {
     ii.Device = t->device;
     ii.QueueFamily = t->queue_family;
     ii.Queue = t->queue;
-    ii.DescriptorPoolSize = 16;
+    ii.DescriptorPoolSize = 16 + PLUGIN_OVERLAY_SETS;   // the font, and the plugins' overlay textures
     ii.MinImageCount = 2;
-    ii.ImageCount = 4;   // vertex buffers rotate per recorded frame: more than gfx_present.c's 2 frames in flight
+    // vertex buffers rotate per recorded frame: more than gfx_present.c's frames in flight, 2, or 8 with frame
+    // generation (a plugin's overlay is shown in a race, where frame generation is on)
+    ii.ImageCount = 9;
     ii.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     ii.UseDynamicRendering = true;
     g_vk_fmt = t->format;
@@ -234,6 +237,7 @@ static int fonts_up(float scale) {
 }
 
 extern "C" void menu_vk_release(void) {
+    plugins_overlay_vk_release();
     if (g_ctx_ok) vk_down();
 }
 
@@ -369,6 +373,8 @@ static int g_perf_frames, g_perf_game;   // presents and game frames in the wind
 static uint64_t g_perf_last_frame;
 static char g_perf_text[96];
 static float g_perf_game_fps, g_perf_shown_fps;   // the last window's rates, for the full panel too
+static float g_perf_panel[4];            // the full panel's window as it was laid out (x0, y0, x1, y1) ...
+static int g_perf_panel_frame = -2;      // ... in this ImGui frame
 
 static int perf_mode_of(const char *s) { return !strcmp(s, "full") ? 2 : !strcmp(s, "fps") ? 1 : 0; }
 
@@ -604,20 +610,40 @@ static void perf_full_draw(const MenuTarget *t, float scale) {
     perf_picture(t, pic_c);
     if (s.gpu_name[0]) ImGui::TextDisabled("%s", s.gpu_name);
     if (s.cpu_name[0]) ImGui::TextDisabled("%s", s.cpu_name);
+    ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+    g_perf_panel[0] = at.x, g_perf_panel[1] = at.y, g_perf_panel[2] = at.x + size.x, g_perf_panel[3] = at.y + size.y;
+    g_perf_panel_frame = ImGui::GetFrameCount();
     ImGui::End();
+}
+
+// The FPS line's box: the top right corner, which the game's HUD leaves empty
+static void perf_line_box(const MenuTarget *t, float scale, float box[4]) {
+    ImVec2 sz = ImGui::CalcTextSize(g_perf_text);
+    float pad = 6 * scale;
+    box[2] = (float)t->width - 12 * scale, box[0] = box[2] - sz.x - pad * 2;
+    box[1] = 12 * scale, box[3] = box[1] + sz.y + pad * 2;
+}
+
+// Where the performance display is this frame, for the plugins' overlays under it (MkwOverlay.perf): the FPS line's
+// box, or the panel as its window was laid out in the last frame (it sizes itself); zeros when nothing is shown.
+static void perf_rect(const MenuTarget *t, float scale, float box[4]) {
+    box[0] = box[1] = box[2] = box[3] = 0;
+    if (g_perf_mode == 2) {
+        if (g_perf_panel_frame + 1 == ImGui::GetFrameCount()) memcpy(box, g_perf_panel, sizeof g_perf_panel);
+    } else if (g_perf_mode && g_perf_text[0]) {
+        perf_line_box(t, scale, box);
+    }
 }
 
 static void perf_draw(const MenuTarget *t, float scale) {
     if (g_perf_mode == 2) return perf_full_draw(t, scale);
-    float w = (float)t->width;
     if (!g_perf_mode || !g_perf_text[0]) return;
     // with the menu open: under its window, over the dimming layout_menu drew before
     ImDrawList *dl = g_open.load(std::memory_order_relaxed) ? ImGui::GetBackgroundDrawList() : ImGui::GetForegroundDrawList();
-    ImVec2 sz = ImGui::CalcTextSize(g_perf_text);
-    float pad = 6 * scale;
-    ImVec2 p(w - 12 * scale - sz.x - pad * 2, 12 * scale);   // the top right corner: the game's HUD leaves it empty
-    dl->AddRectFilled(p, ImVec2(p.x + sz.x + pad * 2, p.y + sz.y + pad * 2), IM_COL32(0, 0, 0, 150), 4 * scale);
-    dl->AddText(ImVec2(p.x + pad, p.y + pad), IM_COL32(255, 255, 255, 235), g_perf_text);
+    float box[4], pad = 6 * scale;
+    perf_line_box(t, scale, box);
+    dl->AddRectFilled(ImVec2(box[0], box[1]), ImVec2(box[2], box[3]), IM_COL32(0, 0, 0, 150), 4 * scale);
+    dl->AddText(ImVec2(box[0] + pad, box[1] + pad), IM_COL32(255, 255, 255, 235), g_perf_text);
 }
 
 extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const char **shot) {
@@ -660,6 +686,7 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
         g_style_scale = scale;
     }
     settings_list_gpus(t->instance);
+    plugins_overlay_vk(t);   // the plugins' textures: only when one came or went since the last frame
     ImGuiIO &io = ImGui::GetIO();
     int reset = g_reset.exchange(0);
     if (reset) {
@@ -695,12 +722,15 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
     ImGui_ImplVulkan_NewFrame();
     ui_id_check("in-game menu");
     ImGui::NewFrame();
-    plugins_overlay_draw((float)t->width, (float)t->height, scale);
+    float perf_box[4];
+    perf_rect(t, scale, perf_box);
+    plugins_overlay_draw((float)t->width, (float)t->height, scale, perf_box);
     if (open) layout_menu(t->width, t->height, scale);
     perf_draw(t, scale);
     menu_notice_draw((float)t->width, scale);
     text_entry_draw((float)t->width, (float)t->height, scale);
     ImGui::Render();
+    plugins_overlay_submit();   // the plugins' drawings, under every list of ours
     if (open) g_save_pending = opt_save_tick(0);
     g_cost_ns += plat_now_ns() - t0;
     if (g_test.page >= 0 && frame >= g_test.opened + g_test.per_page * (uint64_t)(g_test.page + 1)) {

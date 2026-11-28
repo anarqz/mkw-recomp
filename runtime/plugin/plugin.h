@@ -20,7 +20,29 @@ void plugins_exit(void);          // the game ends normally (window closed, the 
 int plugin_overlay_add(MkwOverlayFn fn, void *user);   // 0 when full
 void plugin_overlay_show(MkwOverlayFn fn, int on);
 int plugins_overlay_wanted(void);                       // one is on: the overlay lays out a frame
-void plugins_overlay_draw(float width, float height, float scale);   // in the current ImGui frame
+// In the current ImGui frame. perf: where the menu's own display at the top right is this frame (x0, y0, x1, y1; zeros
+// when off), told to the drawings.
+void plugins_overlay_draw(float width, float height, float scale, const float perf[4]);
+// Version 5 (plugin_overlay.cpp): the drawings' own triangles and textures, their input, the game's picture, their faults
+enum {
+    PLUGIN_OVERLAY_TEXTURES = 64,                       // texture_create's limit
+    PLUGIN_OVERLAY_SETS = PLUGIN_OVERLAY_TEXTURES + 16, // ImGui's descriptor pool has room for these texture ids of
+                                                        // theirs: the textures, the game's picture and the pictures
+                                                        // of another size that frames in flight still sample
+};
+int plugin_overlay_on_fault(MkwOverlayFn fn, void (*cb)(void *user), void *user);
+int plugin_overlay_capture(MkwOverlayFn fn, int flags);
+int plugin_overlay_picture(MkwOverlayFn fn, int max_height);
+uint32_t plugin_texture_create(int w, int h, const uint8_t *rgba, int row_bytes, int flags);
+int plugin_texture_update(uint32_t handle, const uint8_t *rgba, int row_bytes);
+void plugin_texture_destroy(uint32_t handle);
+void plugins_overlay_submit(void);                      // after ImGui::Render: the drawings' lists into the frame, under ImGui's
+int plugins_overlay_input(void);                        // a drawing has the input now: the window's events go to it
+int plugins_overlay_text(void);                         // and wants the keyboard's text
+void plugins_overlay_event(const MkwInputEvent *e);     // window thread (ui/menu/menu_sdl.cpp)
+// (the present thread's side, plugins_overlay_vk, _record, _picture_take and _gpu, is in ui/menu/menu.h: Vulkan types)
+void plugins_overlay_vk_lost(void);                     // ImGui's Vulkan back end is about to go: its texture ids with it
+void plugins_overlay_vk_release(void);                  // before the device goes away
 
 // Version 4 (plugin.c): the plugins' pad filters, run by input/input.c at each read of a player's input (sticks: left
 // x, y, right x, y; guide NULL for players 2-8), and the shown picture a plugin asked for (gfx_present.c).

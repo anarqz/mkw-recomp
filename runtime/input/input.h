@@ -39,6 +39,11 @@ int input_overlay_gate(int *held, uint64_t *buttons);   // L3+R3: 1 in the poll 
 int input_script_inject(const char *line);   // MKW_CTL: "<ticks from now> <button> [hold]", 1 when queued
 void input_script_phase(const char *node);   // seqwatch.c: a phase started (script lines "<node>+<ticks> ...")
 int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly);
+// A plugin's overlay took (1) or gave back (0) the input (MkwPluginApi.overlay_capture): as input_menu, and the pad's
+// menu shortcuts are off meanwhile. input_pad_state: the gamepad alone for that overlay, both sticks (lx, ly, rx, ry)
+// and the Guide button; 0 without a connected gamepad.
+void input_plugin(int on);
+int input_pad_state(uint64_t *buttons, int32_t sticks[4], int *guide);
 // The device the player used last (a press, or a stick moved): the button icons follow it (ui/glyphs/glyphs.c). Before any
 // input, the gamepad when one is connected. Any thread.
 enum { INPUT_DEVICE_KEYBOARD = 1, INPUT_DEVICE_PAD = 2 };

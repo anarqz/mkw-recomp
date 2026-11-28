@@ -13,6 +13,7 @@
 #include "dispatch.h"
 #include "gfx.h"
 #include "host.h"
+#include "input_wsys.h"
 #include "mkw_plugin.h"
 #include "mod_page_ui.h"
 #include "mod_settings.h"
@@ -294,6 +295,21 @@ static void api_quit(void) {
     gfx_window_request_close();
 }
 
+// ---- version 5: the overlay's textures and triangles are plugin_overlay.cpp's; its input, a key, its faults
+static int api_overlay_on_fault(MkwOverlayFn draw, void (*cb)(void *user), void *user) {
+    if (!in_init || !plugin_overlay_on_fault(draw, cb, user)) {
+        rt_log("plugin: overlay_on_fault refused: only from mkw_plugin_init, for a drawing overlay_set took");
+        return 0;
+    }
+    return 1;
+}
+
+static int api_key_state(int code) {
+    int n = 0;
+    const bool *held = SDL_GetKeyboardState(&n);   // SDL's scancodes are the USB HID usages
+    return code > 0 && code < n && held && held[code] && ikb_foreground();
+}
+
 // gfx/nvn/procs/nvn2.c: images a plugin fills (version 3)
 uint32_t nvn2_native_image_create(int w, int h, void **pixels, int *row_bytes);
 int nvn2_native_image_touch(uint32_t handle);
@@ -327,6 +343,13 @@ static const MkwPluginApi api_template = {
     .frame_capture = api_frame_capture,
     .focus_set = api_focus_set,
     .quit = api_quit,
+    .texture_create = plugin_texture_create,
+    .texture_update = plugin_texture_update,
+    .texture_destroy = plugin_texture_destroy,
+    .overlay_capture = plugin_overlay_capture,
+    .key_state = api_key_state,
+    .overlay_on_fault = api_overlay_on_fault,
+    .overlay_picture = plugin_overlay_picture,
 };
 
 // A plugin that declines or fails to load is told to the player too: the mod they enabled does nothing this run.

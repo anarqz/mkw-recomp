@@ -288,6 +288,12 @@ typedef struct {
     uintptr_t ret;             // rip in no module: the word at rsp, the caller's return address after a wild call
 } PlatCrash;
 void plat_crash_hook(void (*fn)(const PlatCrash *c));
+// Runs fn(arg) on this thread and returns 1. If a fault of the kinds above except a stack overflow happens inside it,
+// in any module, and no memory hook takes it, fn is abandoned where it faulted and this returns 0 with the fault in
+// *why (module: "mkw", "mkwgame", "no module" or "plugin" for any other library): for code of a plugin's that must
+// not end the game (plugin/plugin_overlay.cpp). What fn held (locks, memory) stays held; nothing of the runtime's may
+// be locked inside it. Nests; the innermost one takes the fault.
+int plat_guard_run(void (*fn)(void *arg), void *arg, PlatCrash *why);
 // Windows: the hardware-enforced stack protection (CET shadow stacks) policy of this process into *flags
 // (PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY; bit 0 enabled) and 0; a Windows error code when it cannot be read;
 // -1 on Linux. Logged at start: a silent 0xC0000409 exit was seen only on Windows.

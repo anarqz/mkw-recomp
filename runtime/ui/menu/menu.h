@@ -49,6 +49,9 @@ typedef struct {
     uint32_t width, height;
     int image_w, image_h;                 // the game image this present shows (its crop)
     int scaler;                           // how the last present scaled it to the window: 0 not, 1 bilinear blit, 2 FSR 1
+    int picture[4];                       // where the game's picture is in the swapchain image: x, y, w, h (bars around it)
+    int hdr;                              // an HDR10 swapchain: the overlay is drawn in sRGB and composed (vk_hdr_ui.c)
+    struct VmaAllocator_T *vma;           // the device's allocator (a VmaAllocator), for the plugins' overlay textures
 } MenuTarget;
 // Lays out this frame's overlay; 1 when there is something to draw. frame: the presented frame (0 unknown). *shot: a
 // path when the test hook wants this frame's swapchain image saved, else NULL. The first open starts ImGui's Vulkan
@@ -57,6 +60,18 @@ int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const char **shot);
 // Records the frame menu_overlay_frame laid out into cb, which is inside dynamic rendering on the image.
 void menu_overlay_draw(VkCommandBuffer cb);
 void menu_vk_release(void);               // before the device goes away (gfx_window_release_vk)
+// (plugin/plugin_overlay.cpp) the plugins' overlay textures and the game's picture for them, on the present path.
+// plugins_overlay_vk: menu_overlay_frame calls it once ImGui's Vulkan back end is up, before the layout: images and
+// staging buffers for what the plugins' threads asked for since the last frame. The present then, every time:
+// plugins_overlay_record(cb, serial, frames) first in its command buffer (the staged pixels into their images; what
+// no frame in flight reads any more is freed. serial: the presents recorded so far; frames: the present slots in
+// use, each waited for before it is recorded into again), and plugins_overlay_picture_take after the game's picture
+// is in the swapchain image: 1 with the image (w x h, RGBA8) this present blits that picture into and leaves in
+// SHADER_READ_ONLY_OPTIMAL. plugins_overlay_gpu: 1 while a present may sample what an earlier one wrote.
+void plugins_overlay_vk(const MenuTarget *t);
+void plugins_overlay_record(VkCommandBuffer cb, uint32_t serial, uint32_t frames);
+int plugins_overlay_picture_take(VkImage *img, uint32_t *w, uint32_t *h);
+int plugins_overlay_gpu(void);
 
 // ---- what the menu asks of the platform side (gfx_window_sdl.c)
 void gfx_window_apply_settings(void);     // MKW_FULLSCREEN or MKW_WINDOW_SIZE changed: the window follows

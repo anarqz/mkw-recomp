@@ -13,6 +13,7 @@
 extern "C" {
 #include "input.h"
 #include "input_sdl.h"
+#include "plugin/plugin.h"
 #include "ui/menu/menu.h"
 #include "ui/menu/text_entry.h"
 }
@@ -49,8 +50,73 @@ static ImGuiKey key_of(SDL_Scancode sc) {
     return ImGuiKey_None;
 }
 
+// A plugin's overlay that has the input (MkwPluginApi.overlay_capture; plugin/plugin_overlay.cpp): the event goes to
+// it, as an MkwInputEvent, and not to the menu. F1 (the menu, which then has the input), F10 and what the window does
+// itself (F11) stay ours; Esc is the overlay's.
+static bool plugin_event(const SDL_Event *e, float d) {
+    static bool text_on;   // the system's text input, on while a capturing overlay asks for it
+    bool text = plugins_overlay_text();
+    if (text != text_on)
+        if (SDL_Window *w = SDL_GetKeyboardFocus()) {
+            if (text) SDL_StartTextInput(w);
+            else SDL_StopTextInput(w);
+            text_on = text;
+        }
+    if (!plugins_overlay_input()) return false;
+    MkwInputEvent ev = {};
+    switch (e->type) {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+        if (e->key.scancode == SDL_SCANCODE_F1 || e->key.scancode == SDL_SCANCODE_F10) return false;
+        ev.type = MKW_EV_KEY;
+        ev.down = e->type == SDL_EVENT_KEY_DOWN;
+        ev.repeat = e->key.repeat;
+        ev.mods = (uint8_t)((e->key.mod & SDL_KMOD_SHIFT ? MKW_MOD_SHIFT : 0) | (e->key.mod & SDL_KMOD_CTRL ? MKW_MOD_CTRL : 0) |
+                            (e->key.mod & SDL_KMOD_ALT ? MKW_MOD_ALT : 0));
+        ev.code = (uint32_t)e->key.scancode;
+        break;
+    case SDL_EVENT_TEXT_INPUT:
+        ev.type = MKW_EV_TEXT;
+        for (const char *s = e->text.text; s && *s;) {   // one event per character
+            int n = (*s & 0x80) == 0 ? 1 : (*s & 0xE0) == 0xC0 ? 2 : (*s & 0xF0) == 0xE0 ? 3 : 4, k = 0;
+            for (; k < n && s[k]; k++) ev.text[k] = s[k];
+            ev.text[k] = 0;
+            s += k;
+            plugins_overlay_event(&ev);
+        }
+        return true;
+    case SDL_EVENT_MOUSE_MOTION:
+        ev.type = MKW_EV_MOUSE_POS;
+        ev.x = e->motion.x * d, ev.y = e->motion.y * d;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        ev.type = MKW_EV_MOUSE_BUTTON;
+        ev.down = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+        ev.code = e->button.button == SDL_BUTTON_LEFT ? 0 : e->button.button == SDL_BUTTON_RIGHT ? 1
+                : e->button.button == SDL_BUTTON_MIDDLE ? 2 : e->button.button == SDL_BUTTON_X1 ? 3 : 4;
+        ev.x = e->button.x * d, ev.y = e->button.y * d;
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        ev.type = MKW_EV_MOUSE_WHEEL;
+        ev.x = e->wheel.x, ev.y = e->wheel.y;
+        break;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        ev.type = MKW_EV_FOCUS;
+        ev.down = e->type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+        plugins_overlay_event(&ev);
+        return false;   // the menu keeps its own account of the focus
+    default:
+        return false;
+    }
+    plugins_overlay_event(&ev);
+    return true;
+}
+
 extern "C" void menu_sdl_event(const SDL_Event *e) {
     float d = (float)gfx_window_sdl_density();
+    if (plugin_event(e, d)) return;
     switch (e->type) {
     case SDL_EVENT_KEY_DOWN:
         // Esc with the menu open (opened by F1 too) is not a toggle here: it goes to the menu, which closes itself

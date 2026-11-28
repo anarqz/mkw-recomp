@@ -18,6 +18,7 @@
 #include "platform.h"
 
 #include "win32_int.h"
+#include "plat_jmp.h"
 
 // ---- virtual memory: VirtualAlloc reservations, MEM_WRITE_WATCH for the watched ones.
 
@@ -142,6 +143,27 @@ void plat_mem_watch_hook(int (*fn)(uint64_t addr, uint64_t rip)) {
 
 static void (*crash_fn)(const PlatCrash *c);
 
+// plat_guard_run: the thread's innermost guard and the fault it took. The handler below leaves the exception's
+// dispatch with plat_longjmp, our own (plat_jmp.h): it restores the registers the guard saved and pops the CET shadow
+// stack itself, where a changed context handed back to the system is refused on machines that check it (the fast fail
+// 0xD of #751). The vectored handlers' list is not locked while a handler runs, so nothing stays held.
+static _Thread_local PlatJmpBuf *guard_jb;
+static _Thread_local PlatCrash guard_why;
+
+int plat_guard_run(void (*fn)(void *arg), void *arg, PlatCrash *why) {
+    PlatJmp jb;
+    PlatJmpBuf *outer = guard_jb;
+    if (plat_setjmp(jb)) {
+        guard_jb = outer;
+        if (why) *why = guard_why;
+        return 0;
+    }
+    guard_jb = jb;
+    fn(arg);
+    guard_jb = outer;
+    return 1;
+}
+
 static LONG CALLBACK crash_veh(EXCEPTION_POINTERS *ep) {
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     const char *what = code == EXCEPTION_ACCESS_VIOLATION ? "access violation"
@@ -157,11 +179,20 @@ static LONG CALLBACK crash_veh(EXCEPTION_POINTERS *ep) {
     HMODULE at = NULL, exe = GetModuleHandleW(NULL), game = GetModuleHandleW(L"mkwgame.dll");
     int in_module = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                        (LPCWSTR)rip, &at);
-    if (in_module && at != exe && (!game || at != game)) return EXCEPTION_CONTINUE_SEARCH;
+    int ours = !in_module || at == exe || (game && at == game);
+    PlatJmpBuf *guard = code == EXCEPTION_STACK_OVERFLOW ? NULL : guard_jb;   // (its guard page is gone: not resumed)
+    if (!ours && !guard) return EXCEPTION_CONTINUE_SEARCH;
     MODULEINFO mi = {0};
     if (in_module) GetModuleInformation(GetCurrentProcess(), at, &mi, sizeof mi);
     PlatCrash c = {what, (uint32_t)code, rip, in_module ? rip - (uintptr_t)mi.lpBaseOfDll : rip, -1, 0};
-    c.module = !in_module ? "no module" : at == exe ? "mkw" : "mkwgame";
+    c.module = !in_module ? "no module" : at == exe ? "mkw" : ours ? "mkwgame" : "plugin";
+    if (guard) {   // inside plat_guard_run: the guarded call ends here, the process goes on
+        if (code == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2)
+            c.access = (int)ep->ExceptionRecord->ExceptionInformation[0], c.addr = ep->ExceptionRecord->ExceptionInformation[1];
+        guard_why = c;
+        guard_jb = NULL;
+        plat_longjmp(guard, 1);
+    }
     uintptr_t sp = (uintptr_t)ep->ContextRecord->Rsp;   // a wild call left its return address there
     if (!in_module && sp && !(sp & 7) && plat_mem_readable(sp, 8)) c.ret = *(const uintptr_t *)sp;
     if (code == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2)

@@ -417,6 +417,8 @@ static int pad_read(uint64_t *b, int32_t sl[2], int32_t sr[2]) {
     return 1;
 }
 
+static volatile int32_t g_plugin;   // a plugin's overlay has the input (input_plugin below): 0, 1 on, 2 waiting for the release
+
 static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *ry) {
     uint64_t b = 0;
     int32_t sl[2] = {0, 0}, sr[2] = {0, 0};
@@ -474,6 +476,9 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
     int toggle = input_menu_gate(&combo_held, menu_is_open(), &b, st, guide);
     static int overlay_held;   // L3+R3 step the performance overlay (F10)
     int overlay = input_overlay_gate(&overlay_held, &b);
+    // A plugin's overlay has the input: the pad's shortcuts are its buttons (the chords stay held, so letting go
+    // after it closes toggles nothing); F1 on the keyboard still opens the menu
+    if (g_plugin == 1) toggle = overlay = 0;
     sl[0] = st[0], sl[1] = st[1], sr[0] = st[2], sr[1] = st[3];
     plat_mutex_unlock(&lock);
     if (toggle) menu_toggle();
@@ -491,7 +496,8 @@ static volatile int32_t g_menu;   // the in-game menu, the same way (input_menu)
 
 int input_cursor_allowed(void) {
     const char *in = cfg_get("MKW_INPUT");
-    return g_block != 1 && g_menu != 1 && mouse_sens_get() > 0 && kbm_get() && !(in && !strcmp(in, "none"));
+    return g_block != 1 && g_menu != 1 && g_plugin != 1 && mouse_sens_get() > 0 && kbm_get() &&
+           !(in && !strcmp(in, "none"));
 }
 
 void input_block(int on) {
@@ -507,7 +513,15 @@ void input_menu(int open) {
     ikb_cursor_update();
 }
 
-// 1 while flag (g_block, g_menu) blocks the game's input; state 2 ends at the first poll with nothing held.
+// A plugin's overlay with the input (MkwPluginApi.overlay_capture, plugin/plugin_overlay.cpp) blocks the game's input
+// as the menu does, and gives it back the same way: nothing until every button and stick direction is released.
+void input_plugin(int on) {
+    plat_xchg32(&g_plugin, on ? 1 : 2);
+    if (!on) ikb_menu_closed();
+    ikb_cursor_update();
+}
+
+// 1 while flag (g_block, g_menu, g_plugin) blocks the game's input; state 2 ends at the first poll with nothing held.
 static int blocked(volatile int32_t *flag, uint64_t buttons) {
     int32_t k = *flag;
     return k && !(k == 2 && !buttons && plat_cas32(flag, 0, 2) == 2);
@@ -516,8 +530,8 @@ static int blocked(volatile int32_t *flag, uint64_t buttons) {
 void input_poll(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *ry) {
     lat_input_read();   // MKW_LATENCY: the first read of each frame
     poll_merged(buttons, lx, ly, rx, ry);
-    int text = blocked(&g_block, *buttons), menu = blocked(&g_menu, *buttons);
-    if (!text && !menu) return;
+    int text = blocked(&g_block, *buttons), menu = blocked(&g_menu, *buttons), plugin = blocked(&g_plugin, *buttons);
+    if (!text && !menu && !plugin) return;
     *buttons = 0; *lx = *ly = *rx = *ry = 0;
 }
 
@@ -566,7 +580,7 @@ void input_poll_player(int player, uint64_t *buttons, int32_t *lx, int32_t *ly, 
     sl[0] = st[0], sl[1] = st[1], sr[0] = st[2], sr[1] = st[3];
     stick_bits(&b, sl[0], sl[1], B_SL_LEFT);
     stick_bits(&b, sr[0], sr[1], B_SR_LEFT);
-    if (g_block || g_menu) b = 0, sl[0] = sl[1] = sr[0] = sr[1] = 0;
+    if (g_block || g_menu || g_plugin) b = 0, sl[0] = sl[1] = sr[0] = sr[1] = 0;
     *buttons = b; *lx = sl[0]; *ly = sl[1]; *rx = sr[0]; *ry = sr[1];
 }
 
@@ -581,6 +595,22 @@ int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly) {
     *buttons = b;
     *lx = sl[0];
     *ly = sl[1];
+    return ok;
+}
+
+// The gamepad alone with both sticks and the Guide button, for a plugin's overlay that has the input
+// (MkwOverlay.pad): what input_pad_read gives the menu, and the rest of an MkwPad.
+int input_pad_state(uint64_t *buttons, int32_t sticks[4], int *guide) {
+    uint64_t b = 0;
+    int32_t sl[2] = {0, 0}, sr[2] = {0, 0};
+    plat_mutex_lock(&lock);
+    if (!state) start();
+    if (state > 0) binds_refresh();
+    int ok = state == 1 && pad_read(&b, sl, sr);
+    *guide = ok && pad && SDL_GamepadConnected(pad) && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_GUIDE);
+    plat_mutex_unlock(&lock);
+    *buttons = b;
+    sticks[0] = sl[0], sticks[1] = sl[1], sticks[2] = sr[0], sticks[3] = sr[1];
     return ok;
 }
 

@@ -857,6 +857,14 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
         rt_log("gfx: present fence wait timed out");
         goto out;
     }
+    // The blits change queue (frame generation's own, vk_present_queue) while a plugin's overlay has textures: an
+    // upload recorded into one present is sampled by the next, and two queues keep no order between them, so the
+    // presents in flight end first. Every slot's fence is signalled or submitted here (a reset is always submitted).
+    static VkQueue last_q;
+    VkQueue this_q = g_blit_q ? g_blit_q : c->gfx_queue;
+    if (last_q && last_q != this_q && plugins_overlay_gpu())
+        vkWaitForFences(c->device, (uint32_t)g_frames, g_fence, VK_TRUE, 5000000000ull);
+    last_q = this_q;
     uint32_t idx = 0;
     uint64_t a0 = kern_now_ns();
     VkResult r = vkAcquireNextImageKHR(c->device, g_sc, 1000000000ull, g_acquire[slot], VK_NULL_HANDLE, &idx);
@@ -906,11 +914,13 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     // a 16:9 buffer) at 2560x1440 and crops to it, where 1.0.0 scales it to the whole 1280x800 output itself
     int fit_w = g_aspect && !movie ? (int)(ch * g_aspect + 0.5f) : cw;
     window_settings_live();
+    int to[4];   // where the picture goes in the swapchain image: {x, y, w, h}
+    gfx_fit_rect(fit_w, ch, (int)g_sc_vis.width, (int)g_sc_vis.height, to);
     // The menu overlay: laid out before recording (its first frame starts the ImGui back end and uploads the font)
     const char *menu_shot = NULL;
     MenuTarget mt = {c->instance, c->phys, c->device, c->gfx_family, c->gfx_queue,
                      g_sc_hdr ? VK_FORMAT_R8G8B8A8_UNORM : g_sc_fmt, g_sc_ext.width,
-                     g_sc_ext.height, cw, ch, g_scaler};
+                     g_sc_ext.height, cw, ch, g_scaler, {to[0], to[1], to[2], to[3]}, g_sc_hdr, c->vma};
     int overlay = src && g_sc_view[idx] &&
                   menu_overlay_frame(__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), &mt, &menu_shot);
     if (!menu_shot && __atomic_exchange_n(&g_screen_on, 0, __ATOMIC_ACQ_REL)) menu_shot = g_screen_path;
@@ -923,6 +933,9 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     VkCommandBufferBeginInfo bi = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                                    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     vkBeginCommandBuffer(cb, &bi);
+    // The plugins' overlay textures (plugin/plugin_overlay.cpp): pixels staged since the last present go into their
+    // images here, before the overlay's pass samples them; with none pending, two loads
+    plugins_overlay_record(cb, g_frame, (uint32_t)g_frames);
     VkImage dst = g_sc_img[idx];
     // #43 and #50 (RADV) hung on this thread's submission with every earlier mark finished: this one says whether the
     // GPU reached it and got through the swapchain image's transition and clear
@@ -930,8 +943,6 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     sync_barrier(cb, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     const int rect[4] = {cx, cy, cw, ch};
-    int to[4];   // where the picture goes in the swapchain image: {x, y, w, h}
-    gfx_fit_rect(fit_w, ch, (int)g_sc_vis.width, (int)g_sc_vis.height, to);
     if (!src || to[2] != (int)g_sc_ext.width || to[3] != (int)g_sc_ext.height) {   // black bars, or all black
         VkClearColorValue black = {.float32 = {0, 0, 0, 1}};
         VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -964,6 +975,31 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     VkImageLayout last = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     VkPipelineStageFlags2 last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     VkAccessFlags2 last_write = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    // A plugin's overlay shows the game's own picture in a box (MkwPluginApi.overlay_picture): the picture as it is
+    // now in the swapchain image, before anything is drawn over it, blitted (scaled down) into the image this frame's
+    // layout named. Only while such a drawing is shown, and never on an HDR10 swapchain (its picture is PQ).
+    VkImage pic = VK_NULL_HANDLE;
+    uint32_t pic_w = 0, pic_h = 0;
+    if (src && plugins_overlay_picture_take(&pic, &pic_w, &pic_h)) {
+        sync_barrier(cb, dst, last, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, last_stage, last_write,
+                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+        // (its last contents go: every pixel is written; earlier presents sampled it before this one in queue order)
+        sync_barrier(cb, pic, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                     VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        VkImageBlit pic_region = {
+            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .srcOffsets = {{to[0], to[1], 0}, {to[0] + to[2], to[1] + to[3], 1}},
+            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .dstOffsets = {{0, 0, 0}, {(int)pic_w, (int)pic_h, 1}}};
+        vkCmdBlitImage(cb, dst, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, pic, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &pic_region, VK_FILTER_LINEAR);
+        sync_barrier(cb, pic, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        last = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        last_stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        last_write = 0;
+    }
     // On an HDR10 swapchain the menu draws into an RGBA8 image cleared to 0, then goes onto the PQ picture at paper
     // white (vk_hdr_ui.c): its sRGB bytes straight into a PQ image would put its white at 10 000 nits
     VkImageView menu_view = overlay && g_sc_hdr ? vk_hdr_ui_target(cb, g_sc_ext.width, g_sc_ext.height) : VK_NULL_HANDLE;
