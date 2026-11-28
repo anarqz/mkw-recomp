@@ -26,8 +26,8 @@ extern "C" {
 
 // ---- state, any thread
 int menu_is_open(void);
-void menu_toggle(void);                   // F1 / Esc on the keyboard, Minus+Plus on the pad (a plugin's page first)
-void menu_toggle_own(void);               // the runtime's menu, never a plugin's page (MkwPluginApi.menu_open)
+void menu_toggle(void);                   // F1 / Esc on the keyboard, Minus+Plus on the pad; opening goes to a
+                                          // plugin's page instead while one holds the menu (menu_redirect)
 void menu_perf_cycle(void);               // F10: the performance overlay off, fps, full
 void menu_notice(const char *text, int seconds);   // a line at the top of the picture for that long, menu closed or not
 

@@ -176,7 +176,7 @@ static uint64_t api_call_original(MkwCpu *m) {
 static MkwCpu *api_current_cpu(void) { return (MkwCpu *)kern_cpu(); }
 
 static int api_overlay_set(MkwOverlayFn draw, void *user) {
-    if (!in_init || !plugin_overlay_add(draw, user, cur_plugin)) {
+    if (!in_init || !plugin_overlay_add(draw, user)) {
         rt_log("plugin: overlay_set refused: only from mkw_plugin_init, with a function, at most 16");
         return 0;
     }
@@ -237,7 +237,7 @@ void plugins_input_filter(int player, uint64_t *buttons, int32_t sticks[4], int 
 }
 
 static void api_menu_open(int open) {
-    if ((menu_is_open() != 0) != (open != 0)) menu_toggle_own();
+    if ((menu_is_open() != 0) != (open != 0)) menu_toggle();   // opening: the holder's page (menu_redirect)
 }
 
 static struct { MkwFrameFn cb; void *user; int max_w, max_h; } frame_req;
@@ -318,7 +318,8 @@ static struct { int (*open)(void *user); void *user; } redirect[MAX_PLUGINS];   
 static void redirect_of(int i, int (*open)(void *user), void *user) {
     __atomic_store_n(&redirect[i].user, user, __ATOMIC_RELAXED);
     __atomic_store_n(&redirect[i].open, open, __ATOMIC_RELEASE);
-    rt_log("plugin: %s: the menu's keys %s", plugins[i].mod_name, open ? "open its page first" : "are the runtime's again");
+    rt_log("plugin: %s %s the in-game menu", plugins[i].mod_name, open ? "holds" : "gave back");
+    if (open && menu_is_open()) menu_toggle();   // the runtime's menu closes; it opens no more while held
 }
 #define SLOT(i) static void redir##i(int (*o)(void *), void *u) { redirect_of(i, o, u); }
 SLOT(0) SLOT(1) SLOT(2) SLOT(3) SLOT(4) SLOT(5) SLOT(6) SLOT(7) SLOT(8) SLOT(9) SLOT(10) SLOT(11) SLOT(12) SLOT(13)
@@ -331,13 +332,15 @@ static void (*const redirect_slot[MAX_PLUGINS])(int (*)(void *), void *) = {
     S(16), S(17), S(18), S(19), S(20), S(21), S(22), S(23), S(24), S(25), S(26), S(27), S(28), S(29), S(30), S(31)};
 #undef S
 
-// ui/menu/menu.cpp menu_toggle, before the runtime's menu opens: the plugins in load order, one whose drawing faulted
-// left out (its page may be gone with it, so the runtime's menu works again)
+// ui/menu/menu.cpp menu_toggle, instead of opening the runtime's menu: the first plugin in load order that holds it
+// (also one whose drawing faulted: it shows its page elsewhere then). What open returns is only logged.
 int plugins_menu_redirect(void) {
     for (int i = 0; i < nplugins; i++) {
         int (*open)(void *) = __atomic_load_n(&redirect[i].open, __ATOMIC_ACQUIRE);
-        if (!open || plugin_overlay_owner_dead(i)) continue;
-        if (open(__atomic_load_n(&redirect[i].user, __ATOMIC_RELAXED))) return 1;
+        if (!open) continue;
+        int took = open(__atomic_load_n(&redirect[i].user, __ATOMIC_RELAXED));
+        rt_log("plugin: %s: the menu's key went to its page (%s)", plugins[i].mod_name, took ? "shown" : "not shown");
+        return 1;
     }
     return 0;
 }

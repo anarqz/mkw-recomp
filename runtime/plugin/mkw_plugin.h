@@ -295,7 +295,8 @@ typedef struct MkwPluginApi {
     // so a button the plugin takes opens nothing else, and a pad it empties is an idle pad for the game. It does not
     // wait and runs no guest code. One filter per plugin, in load order. Only from mkw_plugin_init; 1 done, 0 refused.
     int (*input_filter)(MkwPadFn filter, void *user);
-    // Opens (1) or closes (0) the runtime's in-game menu, as F1 does. Any thread.
+    // Opens (1) or closes (0) the runtime's in-game menu, as F1 does (while a plugin holds the menu, version 6
+    // menu_redirect, opening calls that plugin instead). Any thread.
     void (*menu_open)(int open);
     // The next shown frame as the player sees it (the game's picture with the menu, notices and overlays; sRGB also on
     // an HDR display), scaled down to fit max_w x max_h (not up), RGBA8 with opaque alpha: cb(rgba, width, height,
@@ -375,13 +376,16 @@ typedef struct MkwPluginApi {
     int (*settings_confirm_reset)(void);
     // NULL, or the menu's localised "could not save settings" while the last write of mkw.ini failed. Any thread.
     const char *(*settings_status)(void);
-    // While set, F1, Esc (nothing else having the input) and the pad's menu shortcut call open(user) before the
-    // runtime's menu opens: it returns 1 when it opened the plugin's page instead (the runtime's menu stays shut), 0
-    // to let the runtime's menu open. Called on the thread that saw the key or the pad (the window's, or a game thread
-    // reading the input): it must not wait; overlay_show and overlay_capture may be called from it. F1 while the
-    // plugin's page has the input calls it too (the plugin may close its page and return 1). open NULL: the runtime's
-    // menu again. A plugin whose overlay drawing faulted is skipped from then on. Closing the runtime's own menu is
-    // unchanged. Any thread.
+    // The plugin holds the in-game menu: while open is set, the runtime's menu never opens. Whatever would open it
+    // (F1, Esc with nothing else having the input, the pad's menu shortcut, any plugin's menu_open(1)) calls
+    // open(user) instead and does nothing else; what open returns (1 its page was shown) is only logged. F1 while the
+    // plugin's page has the input calls it too (the plugin may close its page then). Called on the thread that saw
+    // the key or the pad (the window's, or a game thread reading the input) or that called menu_open: it must not
+    // wait; overlay_show and overlay_capture may be called from it. A plugin whose overlay drawing faulted keeps the
+    // menu: open is still called (it can show its page elsewhere). Setting it while the runtime's menu is open closes
+    // that menu; a menu still open (Esc in it, Continue) closes as before. The performance overlay (F10, L3 + R3) and
+    // the window's keys (F11) stay the runtime's. open NULL gives the menu back. With several plugins, the first
+    // holder in load order gets the call. Any thread.
     void (*menu_redirect)(int (*open)(void *user), void *user);
     // locked 1 (the plugin's player is online): the runtime ignores the hacks that can be used to cheat, whatever
     // mkw.ini or the environment says: turbo runs at speed 1 (F2 inert, "on" and "until" too), freeze keys are inert
