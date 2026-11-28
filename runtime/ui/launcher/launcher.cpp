@@ -222,10 +222,11 @@ static bool pad_power(int i, InputPower *w, char *text, int size) {
     return true;
 }
 
-// The GitHub repository the releases and the issues are in: MKW_UPDATE_REPO (tests, forks), else upstream's.
+// The GitHub repository the releases and the issues are in: MKW_UPDATE_REPO (tests, forks), else this fork's (the
+// MKWMP release line, anarqz/mkw-recomp: an upstream release would drop the plugin API that mods/mkwmp needs).
 static const char *repo(void) {
     const char *r = getenv("MKW_UPDATE_REPO");
-    return r && *r ? r : "adriadam10/mkw-recomp";
+    return r && *r ? r : "anarqz/mkw-recomp";
 }
 
 // Whether a GPU here can run the game (vk_gpu_check.h): the setup takes many minutes and the game's window used to

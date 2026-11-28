@@ -4,6 +4,42 @@ Each version's section is that release's notes: `tools/build/notes.py` puts it i
 updating, known issues, reporting) for the GitHub release. A section has a summary paragraph, `### Changes` (each with
 its issue, #N), `### Tested` (what was run from the packages before publishing) and optionally `### Known issues`.
 
+## 0.1.18-mkwmp
+
+The MKWMP release line of mkw-recomp (fork anarqz/mkw-recomp): upstream 0.1.18 as released, plus plugin API 5 and 6,
+which MKWMP's mod (`mods/mkwmp`) uses for its overlay and its in-game page. Not an upstream release: report problems
+here, not to adriadam10/mkw-recomp.
+
+### Changes
+
+- **Everything of upstream 0.1.18** (the section below).
+- **Plugin API 5** (`runtime/plugin/mkw_plugin.h`): an overlay drawn by the plugin's own UI code. `MkwOverlay.triangles`
+  (textured, coloured triangle lists in the layout immediate-mode UI libraries produce, checked and drawn in the menu
+  overlay's pass), the plugin's own RGBA8 textures (`texture_create` / `texture_update` / `texture_destroy`) and
+  `overlay_capture` with the drawing's events, pad and `key_state` (the game goes on and reads idle input).
+- **Plugin API 6** (`MKW_PLUGIN_API_VERSION 6`): the in-game menu's settings for a plugin's own page.
+  `settings_tabs` / `settings_rows` / `settings_set` / `settings_confirm_reset` / `settings_status` replay the menu's
+  own rows (labels, values, choices, greyed-out rules, follow-ups) for the plugin to show and change;
+  `menu_redirect` lets a plugin hold the in-game menu (F1, Esc and the pad's shortcut open the plugin's page instead);
+  `hacks_lock` turns off, while the player is online, only what can be used to cheat (turbo, the freeze keys, the
+  input script's playback) and greys those rows out in the Hacks tab. A plugin written for an older version loads
+  unchanged.
+- **The game code id is upstream 0.1.18's (`c9bbcb75a9ac9a49`)**: nothing under `runtime/cpu` changes, so a game set
+  up with upstream 0.1.16 to 0.1.18 or 0.1.16-mkwmp keeps its game code.
+- **The start screen's updater checks this fork's releases** (`MKW_UPDATE_REPO` still overrides it), as in
+  0.1.16-mkwmp: an upstream release would drop the plugin API that `mods/mkwmp` needs.
+
+### Tested
+
+- CI test builds of these plugin API 5 and 6 commits on 0.1.18 (the Windows runtime and the overlay example plugin).
+- Not run before publishing: the whole setup from these packages. This release ships in an MKWMP alpha first
+  (a prerelease).
+
+### Known issues
+
+- Plugin APIs 5 and 6 are this fork's, not upstream's: a mod that uses them runs with those parts off on upstream's
+  releases.
+
 ## 0.1.18
 
 **A fix for the silent exit 0xC0000409 on Windows 11 right after the game starts (#751, #762, #702), and DLSS and
