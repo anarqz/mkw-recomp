@@ -813,6 +813,23 @@ extern "C" void plugins_overlay_draw(float width, float height, float scale, con
     int guide = 0, have_pad = input && input_pad_state(&pad.buttons, st, &guide);
     pad.buttons &= 0xffff;
     pad.lx = st[0], pad.ly = st[1], pad.rx = st[2], pad.ry = st[3], pad.guide = guide;
+    // API 6: while a binding row captures, the press it takes is the runtime's: no key, text or click goes to the
+    // drawing (releases and positions still do), and pad buttons held then stay hidden from it until let go
+    static uint64_t pad_hidden;
+    if (binds_modal()) {
+        int k = 0;
+        for (int e = 0; e < nev; e++) {
+            uint8_t t = ev[e].type;
+            if (t == MKW_EV_TEXT || ((t == MKW_EV_KEY || t == MKW_EV_MOUSE_BUTTON) && ev[e].down)) continue;
+            ev[k++] = ev[e];
+        }
+        nev = k;
+        pad_hidden |= pad.buttons;
+        pad.guide = 0;
+        pad.lx = pad.ly = pad.rx = pad.ry = 0;
+    }
+    pad_hidden &= pad.buttons;
+    pad.buttons &= ~pad_hidden;
     g_w = width, g_h = height;
     for (int i = 0, n = g_n.load(); i < n; i++) {
         if (!g_draws[i].shown.load(std::memory_order_relaxed) || g_draws[i].dead.load(std::memory_order_relaxed)) continue;
