@@ -21,7 +21,7 @@ void freeze_set(int on, int64_t n) {
 }
 
 static void keys(void) {
-    if (!cfg_bool("MKW_FREEZE_KEYS")) return;
+    if (!cfg_bool("MKW_FREEZE_KEYS") || hacks_locked()) return;
     int f3 = input_hack_key(HACK_KEY_FREEZE), f4 = input_hack_key(HACK_KEY_STEP);
     if (f3 && !f3_was) freeze_set(!atomic_load(&frozen), 0);
     if (f4 && !f4_was && atomic_load(&frozen)) atomic_fetch_add(&steps, 1);
@@ -31,13 +31,18 @@ static void keys(void) {
 void freeze_present(void) {
     keys();
     if (!atomic_load(&frozen)) return;
+    if (hacks_locked()) {   // a plugin's lock (lock.c): no freezing online, and a frozen game goes on
+        freeze_set(0, 0);
+        return;
+    }
     if (atomic_load(&steps) > 0) {
         atomic_fetch_sub(&steps, 1);
         return;
     }
-    while (atomic_load(&frozen) && atomic_load(&steps) <= 0) {
+    while (atomic_load(&frozen) && atomic_load(&steps) <= 0 && !hacks_locked()) {
         plat_sleep_ms(10);
         keys();
     }
+    if (hacks_locked()) atomic_store(&frozen, 0);
     if (atomic_load(&steps) > 0) atomic_fetch_sub(&steps, 1);
 }

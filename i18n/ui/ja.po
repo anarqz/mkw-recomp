@@ -62,6 +62,10 @@ msgid ""
 "change how the game behaves."
 msgstr "実験的な機能です。本体にはない近道で、より速く遊んだりテストしたりできます。ゲームの動作が変わることがあります。"
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr "オンライン中はオフです（Modがロックしています）。"
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "ターボ"

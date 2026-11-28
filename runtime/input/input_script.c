@@ -186,6 +186,7 @@ void script_apply(uint64_t *b, int32_t sl[2], int32_t sr[2], int player) {
 
 static void script_apply_locked(uint64_t *b, int32_t sl[2], int32_t sr[2], int player) {
     if (!script_n || seqwatch_hold()) return;   // MKW_SEQ_HOLD: e.g. no presses during the cup movie
+    if (hacks_locked()) return;   // a plugin's lock (core/hacks/lock.c): no scripted input online, nor MKW_CTL's
     uint64_t fr = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), tick = frame_step_ticks();
     int64_t w = frame_step_world_us();
     for (int i = 0; i < script_n; i++) {

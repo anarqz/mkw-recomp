@@ -64,6 +64,10 @@ msgstr ""
 "Sperimentale: scorciatoie che la console non ha, per giocare e provare più in fretta. Possono "
 "cambiare il comportamento del gioco."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr "Disattivato mentre giochi online (lo blocca una mod)."
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turbo"

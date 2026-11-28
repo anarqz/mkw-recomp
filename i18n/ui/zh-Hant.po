@@ -62,6 +62,10 @@ msgid ""
 "change how the game behaves."
 msgstr "實驗功能：主機上沒有的捷徑，用於更快地遊玩和測試。可能會改變遊戲的運作方式。"
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "加速"

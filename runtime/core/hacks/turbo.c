@@ -53,7 +53,8 @@ static void clock_rate(int mul) {
 int turbo_speed(void) { return atomic_load_explicit(&speed, memory_order_relaxed); }
 
 void turbo_poll(void) {
-    const char *mode = cfg_value("MKW_TURBO");
+    const char *mode = hacks_locked() ? "off" : cfg_value("MKW_TURBO");   // a plugin's lock (lock.c): speed 1
+    if (hacks_locked()) toggled = 0;
     int key = 0;
     if (!strcmp(mode, "hold") || !strcmp(mode, "toggle")) {
         int down = input_hack_key(HACK_KEY_TURBO);

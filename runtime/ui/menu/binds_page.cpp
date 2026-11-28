@@ -173,7 +173,9 @@ static void row_action(int a, const InputMap &m, int layout) {
     snprintf(key, sizeof key, "BIND_%s", input_action_name(a));
     const char *note = g_note_action == a && plat_now_ns() < g_note_until ? g_note : nullptr;
     if (np) opt_bind_icon(2, p[0], glyphs_kind());   // the controller's own button, as the game's prompts show it
+    opt_bind_capture(g_cap.action == a ? g_cap.cell : -1);   // a plugin's page (API 6): the row says it is capturing
     int r = opt_bind_row(key, action_label(a), action_desc(a), cells, enabled, note);
+    if (r >= 0 && g_cap.action >= 0) opt_sink_refuse();   // one capture at a time
     if (g_cap.action >= 0 || r < 0) return;
     if (r < 3) {
         g_cap.action = a;
@@ -188,9 +190,10 @@ static void row_action(int a, const InputMap &m, int layout) {
 
 // The window over the page while a cell waits: the press is polled from the devices (input_capture), so the menu's own
 // keys (Enter, arrows, Q / E) bind like any other. Esc or the timeout cancels; a controller button cancels a key cell.
-static void capture_window(void) {
-    if (g_cap.action < 0) return;
-    if (!ImGui::IsPopupOpen("##bind_capture")) ImGui::OpenPopup("##bind_capture");
+// The press polled, the change made; the capture ends kDoneNs after the press, the timeout or Esc. No ImGui: a
+// plugin's page (API 6) has the capture go on with the menu shut (binds_capture_tick). Returns true when it ended.
+static bool capture_poll(void) {
+    if (g_cap.action < 0) return false;
     uint64_t now = plat_now_ns();
     bool pad_cell = g_cap.cell == 2;
     if (!g_cap.done) {
@@ -201,24 +204,50 @@ static void capture_window(void) {
         if (got != INPUT_CAPTURE_NONE && !(got == INPUT_CAPTURE_KEY && pad_cell)) g_cap.done = now;
         if (now - g_cap.start > CAPTURE_SECONDS * 1000000000ull) g_cap.done = now;
     }
+    if (!g_cap.done || now - g_cap.done <= kDoneNs) return false;
+    g_cap.action = -1;
+    return true;
+}
+
+static bool g_window_seen;   // capture_window ran since the last binds_capture_tick
+
+static void capture_window(void) {
+    g_window_seen = true;
+    if (g_cap.action < 0) {   // ended by binds_capture_tick: the window goes too
+        if (ImGui::IsPopupOpen("##bind_capture") &&
+            ImGui::BeginPopupModal("##bind_capture", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        return;
+    }
+    if (!ImGui::IsPopupOpen("##bind_capture")) ImGui::OpenPopup("##bind_capture");
+    uint64_t now = plat_now_ns();
+    int action = g_cap.action, cell = g_cap.cell;
+    bool pad_cell = cell == 2;
+    bool ended = capture_poll();
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("##bind_capture", nullptr,
                                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize)) {
         char t[256];
-        snprintf(t, sizeof t, menu_text(pad_cell ? UI_BINDS_PRESS_PAD : UI_BINDS_PRESS_KEY), action_label(g_cap.action));
+        snprintf(t, sizeof t, menu_text(pad_cell ? UI_BINDS_PRESS_PAD : UI_BINDS_PRESS_KEY), action_label(action));
         ImGui::TextUnformatted(t);
         int left = CAPTURE_SECONDS - (int)((now - g_cap.start) / 1000000000ull);
         snprintf(t, sizeof t, menu_text(UI_BINDS_CANCEL_HINT), left < 1 ? 1 : left);
         ImGui::TextDisabled("%s", t);
-        if (g_cap.done && now - g_cap.done > kDoneNs) {
+        if (ended) {
             ImGui::CloseCurrentPopup();
             char id[48];
-            snprintf(id, sizeof id, "BIND_%s#%d", input_action_name(g_cap.action), g_cap.cell);
+            snprintf(id, sizeof id, "BIND_%s#%d", input_action_name(action), cell);
             opt_focus_key(id);   // back on the cell it came from
-            g_cap.action = -1;
         }
         ImGui::EndPopup();
     }
+}
+
+void binds_capture_tick(void) {
+    if (!g_window_seen) capture_poll();   // the menu's window did not poll it last frame
+    g_window_seen = false;
 }
 
 bool binds_modal(void) { return g_cap.action >= 0; }
@@ -237,12 +266,13 @@ void binds_rows(float scale) {
     for (int a : kMove) row_action(a, m, layout);
     opt_group(UI_BINDS_GROUP_CAMERA);
     for (int a : kCamera) row_action(a, m, layout);
-    ImGui::Dummy(ImVec2(0, 6 * scale));
+    if (!opt_sinking()) ImGui::Dummy(ImVec2(0, 6 * scale));
     g_reset_asked = opt_button("##binds_reset", UI_BINDS_RESET, UI_BINDS_RESET_DESC);
 }
 
 void binds_after_page(void) {
     if (g_reset_asked && g_cap.action < 0) reset_binds();
+    else if (g_reset_asked) opt_sink_refuse();   // a plugin's press while a cell captures
     g_reset_asked = false;
-    capture_window();
+    if (!opt_sinking()) capture_window();
 }

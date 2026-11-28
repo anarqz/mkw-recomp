@@ -73,8 +73,13 @@ static void set_open(int open) { change_open(open); }
 
 static int g_failed_flag();
 extern "C" int menu_is_open(void) { return g_open.load(std::memory_order_relaxed); }
-extern "C" void menu_toggle(void) {
+extern "C" void menu_toggle_own(void) {
     if (!g_failed_flag() && !text_entry_up()) change_open(-1);   // the number pad is modal, as the applet
+}
+extern "C" void menu_toggle(void) {
+    // opening: a plugin's page first (MkwPluginApi.menu_redirect, plugin API 6)
+    if (!g_open.load() && !g_failed_flag() && !text_entry_up() && plugins_menu_redirect()) return;
+    menu_toggle_own();
 }
 
 // ---- events from the window adapter, queued while the menu or the number pad is up; the present path hands them to

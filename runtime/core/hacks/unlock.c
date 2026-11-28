@@ -94,7 +94,16 @@ static int own_all(uint8_t *b, const Category *c, const Located *at) {
     return added;
 }
 
+static volatile int applied;   // this run's save was edited (hacks_lock reports it)
+
+int unlock_applied(void) { return __atomic_load_n(&applied, __ATOMIC_RELAXED); }
+
 int unlock_save(uint8_t *b, uint64_t n) {
+    if (hacks_locked()) {   // a plugin's lock (lock.c)
+        rt_log("unlock: MKW_UNLOCK_ALL ignored: the hacks are locked");
+        return 0;
+    }
+    __atomic_store_n(&applied, 1, __ATOMIC_RELAXED);
     Located at[sizeof cats / sizeof *cats];
     uint32_t progress = 0, cup_slots = 0;
     int ok = n <= UINT32_MAX && (progress = locate_array(b, n, &cup_progress, &cup_slots)) &&

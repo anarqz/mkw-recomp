@@ -38,7 +38,7 @@ int skip_opening_playing(void) {
 void skip_file_opened(const char *path) {
     if (!is_opening(path)) return;   // the path first: every guest file open comes here
     atomic_store_explicit(&opening_at, kern_now_ns(), memory_order_relaxed);
-    if (!cfg_bool("MKW_SKIP_MOVIES")) return;
+    if (!cfg_bool("MKW_SKIP_MOVIES") || hacks_locked()) return;
     atomic_store_explicit(&since, frame_step_ticks() + 1, memory_order_relaxed);
     rt_log("skip: %s opened: pressing A until it ends (MKW_SKIP_MOVIES)", path);
 }
@@ -51,7 +51,7 @@ void skip_movie_closed(void) {
 
 void skip_input(uint64_t *buttons) {
     uint64_t t = atomic_load_explicit(&since, memory_order_relaxed);
-    if (!t) return;
+    if (!t || hacks_locked()) return;
     uint64_t age = frame_step_ticks() + 1 - t;
     if (age > MAX_TICKS) {
         atomic_store_explicit(&since, 0, memory_order_relaxed);

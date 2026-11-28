@@ -8,3 +8,5 @@ void binds_rows(float scale);
 void binds_after_page(void);
 // A cell waits for a press (or its press is still reaching the menu): B, Esc, L / R and the tab keys stay on the page.
 bool binds_modal(void);
+// Each frame a plugin's page (plugin API 6) may show the rows: a capture it started goes on with the menu shut.
+void binds_capture_tick(void);

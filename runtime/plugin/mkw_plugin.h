@@ -1,6 +1,6 @@
-// mkw-recomp native plugin API, version 5 (version 1; a mod's settings and its options page in 2; images in 3; the pad
-// filter, the menu and the shown picture in 4; an overlay's triangles, textures and input in 5). The one header a plugin
-// includes; it links against nothing of mkw-recomp.
+// mkw-recomp native plugin API, version 6 (version 1; a mod's settings and its options page in 2; images in 3; the pad
+// filter, the menu and the shown picture in 4; an overlay's triangles, textures and input in 5; the in-game menu's
+// settings for a plugin's own page in 6). The one header a plugin includes; it links against nothing of mkw-recomp.
 //
 // A plugin is a shared library (.so on Linux, .dll on Windows) in mods/<mod>/plugin/ of the game folder. The runtime
 // loads it at start when the player has the mod enabled (the Mods page, or `--mod <name>` / MKW_MODS), before the game
@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-#define MKW_PLUGIN_API_VERSION 5
+#define MKW_PLUGIN_API_VERSION 6
 
 // The start of the runtime's guest CPU state; ABI-stable for every API version (the runtime checks it at build time).
 // Arguments in x[0..7], the result in x[0], the return address in x[30].
@@ -147,6 +147,60 @@ typedef struct MkwPad {
 } MkwPad;
 typedef void (*MkwPadFn)(MkwPad *pad, void *user);
 typedef void (*MkwFrameFn)(const uint8_t *rgba, int width, int height, int row_bytes, void *user);
+
+// ---- version 6: the in-game menu's settings, for a plugin's own page
+// The runtime's settings tabs (Screen, Graphics, Sound, Controls, General, Advanced, Hacks; not the mods' tabs),
+// replayed row by row by the same code as its menu: labels in the menu language, lists built from the machine (graphics
+// cards, window sizes, networks, languages), rows greyed out by the same rules, in the menu's order. A plugin draws
+// them its own way and changes them with settings_set, which does what the menu's row does.
+enum {   // MkwSettingRow.kind
+    MKW_SET_GROUP = 1,   // a group heading (label)
+    MKW_SET_TEXT,        // a paragraph (label); flags WARNING: a warning
+    MKW_SET_TOGGLE,      // value "1" while the row shows On, else "0"; set "0" / "1"
+    MKW_SET_CHOICE,      // n_choices values / names, current (-1: the value is not in the list), def (-1: none);
+                         // set one of choice_values ("" is the automatic choice, when the list has it)
+    MKW_SET_SLIDER,      // num in lo..hi by step, shown with fmt (printf, one double); with flags AUTO an automatic
+                         // value below lo: value "" and num lo - step while it is on, auto_start where a step right
+                         // from it goes; set a number (put in lo..hi, on a step), or "" for the automatic value
+    MKW_SET_BUTTON,      // an action (value_text: its result, "" none); set "press"
+    MKW_SET_INFO,        // shown only (label, value_text, note). id "##bind_header": the binding rows' column titles
+                         // in cells[0..2]
+    MKW_SET_BIND,        // a binding row: label, cells[3] (key 1, key 2, controller), cell_enabled[3];
+                         // set "capture:N" (the runtime takes the next key or button, 5 s at most) or "clear:N"
+};
+#define MKW_SETF_DISABLED 0x01   // greyed out (an environment variable or a rule; note says why); set is refused
+#define MKW_SETF_ENV      0x02   // set by an environment variable
+#define MKW_SETF_RESTART  0x04   // takes effect at the next start
+#define MKW_SETF_DEFAULT  0x08   // the value is the default
+#define MKW_SETF_INDENT   0x10   // drawn indented under the row before (the Quality preset's rows)
+#define MKW_SETF_WARNING  0x20   // TEXT: a warning; other rows: note is a warning
+#define MKW_SETF_AUTO     0x40   // SLIDER: has an automatic value (below lo)
+#define MKW_SETF_CAPTURE  0x80   // BIND: capturing now, cell capture_cell
+#define MKW_SETF_DIM      0x100  // the row's tab is drawn dim in the menu (Advanced, Hacks): for testing
+
+typedef struct MkwSettingRow {
+    uint32_t size;            // sizeof(MkwSettingRow) of the runtime
+    uint32_t kind;            // MKW_SET_*
+    uint32_t flags;           // MKW_SETF_*
+    int32_t  capture_cell;    // BIND with CAPTURE: the cell being captured; else -1
+    const char *id;           // stable: the cfg key ("MKW_FULLSCREEN"), a binding ("BIND_A") or an action
+                              // ("##autoset", "##reset"); NULL for GROUP and TEXT
+    const char *label;        // localised, UTF-8
+    const char *desc;         // the description (the menu's right pane), may be NULL
+    const char *note;         // a line under the row ("in use: VSync", why it is greyed out, a download's progress,
+                              // "after restart" of an engine), may be NULL
+    const char *value;        // the raw value ("" automatic / unset)
+    const char *value_text;   // the value as the menu shows it
+    int32_t  n_choices, current, def, pad0;
+    const char *const *choice_values;
+    const char *const *choice_names;
+    double   num, lo, hi, step, auto_start;
+    const char *fmt;          // SLIDER: printf with one double ("%.0f %%"); else NULL
+    const char *cells[3];     // BIND: the cells' text ("" none); NULL for the other kinds
+    int32_t  cell_enabled[3], pad1;
+} MkwSettingRow;
+
+typedef void (*MkwSettingFn)(const MkwSettingRow *row, void *user);
 
 typedef struct MkwPluginApi {
     uint32_t size;      // sizeof(MkwPluginApi) of the runtime: a field is there when its offset is below size
@@ -299,7 +353,52 @@ typedef struct MkwPluginApi {
     // MkwOverlay.picture: the live game inside a box of the overlay's page. One blit per shown frame while it is on,
     // nothing otherwise: turn it on when the page opens and off (0) when it closes. 1 done, 0 refused. Any thread.
     int (*overlay_picture)(MkwOverlayFn draw, int max_height);
+
+    // ---- version 6: the in-game menu's settings, for a plugin's own page (MkwSettingRow above)
+    // The core tabs' localised names in the menu's order into names[0..max-1]; returns how many there are (7). The
+    // strings are the runtime's. Any thread.
+    int (*settings_tabs)(const char **names, int max);
+    // Replays tab (0..count-1) row by row into cb(row, user): the strings and lists of a row hold during its cb only.
+    // Only from an overlay drawing's callback (the present thread); a cb must not call settings_rows itself (a
+    // settings_set from it is queued for the next frame). 0 done, -1 a bad tab or not from a drawing.
+    int (*settings_rows)(int tab, MkwSettingFn cb, void *user);
+    // Changes the row id of tab as the menu's row does (MkwSettingRow.kind says what value takes), with what follows
+    // it in the menu (the Quality preset sets its four rows, Best settings and Undo, a library's download, a
+    // controller moved up). From a drawing's callback: at once, 0 done (also when it was the value already), -1 no
+    // such row, greyed out or a value the row does not take. From any other thread: queued and applied at the start
+    // of the next shown frame of the overlay; 0 queued, -1 the queue is full. mkw.ini is written about 400 ms after
+    // the last change, and at once when the drawing is hidden or gives the input back.
+    // The Advanced tab's "##reset" button refuses "press": the plugin asks the player, then settings_confirm_reset.
+    int (*settings_set)(int tab, const char *id, const char *value);
+    // Every setting back to its default, as the menu's confirmed "Reset all settings to defaults"; the plugin asked
+    // the player first. 0 done (queued as settings_set when not from a drawing).
+    int (*settings_confirm_reset)(void);
+    // NULL, or the menu's localised "could not save settings" while the last write of mkw.ini failed. Any thread.
+    const char *(*settings_status)(void);
+    // While set, F1, Esc (nothing else having the input) and the pad's menu shortcut call open(user) before the
+    // runtime's menu opens: it returns 1 when it opened the plugin's page instead (the runtime's menu stays shut), 0
+    // to let the runtime's menu open. Called on the thread that saw the key or the pad (the window's, or a game thread
+    // reading the input): it must not wait; overlay_show and overlay_capture may be called from it. F1 while the
+    // plugin's page has the input calls it too (the plugin may close its page and return 1). open NULL: the runtime's
+    // menu again. A plugin whose overlay drawing faulted is skipped from then on. Closing the runtime's own menu is
+    // unchanged. Any thread.
+    void (*menu_redirect)(int (*open)(void *user), void *user);
+    // locked 1 (the plugin's player is online): the runtime ignores the hacks that could give an edge, whatever
+    // mkw.ini or the environment says, and its menu greys their rows out with a note (settings_rows: DISABLED):
+    // turbo at speed 1 (F2 inert, "on" and "until" too), freeze (F3 / F4 inert, a frozen game goes on), skip movies,
+    // the same randomness (generators seeded from here on take the clock), Classic Grand Prix and VS (the game's
+    // copies switched back, as the menu's switch does), the logic rate (60 Hz, as in time trial), unlock everything
+    // (not applied if the game has not opened its save yet), and the input script with MKW_QUICK_RACE and MKW_CTL's
+    // presses. Returns the MKW_HACK_* that were already applied at start and cannot be taken back (the seed: the
+    // system's entropy and the generators made so far; unlock everything: this run's save was edited): the plugin
+    // refuses to go online then. locked 0: as the settings say again; returns 0. Any thread.
+    int (*hacks_lock)(int locked);
 } MkwPluginApi;
+
+enum {   // hacks_lock's result bits
+    MKW_HACK_TURBO = 1, MKW_HACK_FREEZE = 2, MKW_HACK_INPUT_SCRIPT = 4, MKW_HACK_SEED = 8, MKW_HACK_CLASSIC = 16,
+    MKW_HACK_LOGIC_HZ = 32, MKW_HACK_UNLOCK_ALL = 64, MKW_HACK_QUICK_RACE = 128, MKW_HACK_SKIP_MOVIES = 256,
+};
 
 // Exported by the plugin. api_version is the runtime's (api->version); size tells which fields exist. Return 0 to stay
 // loaded; anything else declines (an unsupported game build, say): the runtime logs it with message, if set, and

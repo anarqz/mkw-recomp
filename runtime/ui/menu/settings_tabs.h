@@ -14,3 +14,11 @@ bool settings_modal(void);                  // a confirmation or a key capture i
 void settings_tabs(float scale, float bottom);   // the tab bar and the shown page; bottom: height kept below it
 void settings_tabs_done(void);              // after the window's own B / Esc handling, each frame
 const char *settings_present_name(const char *mode);   // the menu's name of a MKW_VK_PRESENT mode; NULL for another
+
+// Plugin API 6 (plugin/plugin_overlay.cpp): the core tabs (TAB_SCREEN..TAB_HACKS, not the mods') replayed into a
+// recorder (option_rows.h OptSink) instead of ImGui, the same code as the menu's pages. Present thread.
+struct OptSink;
+int settings_tab_count(void);
+const char *settings_tab_name(int tab);              // localised; NULL for a bad tab
+int settings_tab_record(int tab, OptSink *sink);     // 0 done, -1 a bad tab (or a pass is running)
+void settings_confirm_reset(void);                   // the Advanced tab's confirmed reset of every setting

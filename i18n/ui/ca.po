@@ -64,6 +64,10 @@ msgstr ""
 "Experimental: dreceres que la consola no té, per jugar i provar més de pressa. Poden canviar el "
 "comportament del joc."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr "Desactivat mentre jugues en línia (el bloqueja un mod)."
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turbo"

@@ -64,6 +64,10 @@ msgstr ""
 "Experimentell: Abkürzungen, die die Konsole nicht hat, um schneller zu spielen und zu testen. Sie "
 "können das Spielverhalten verändern."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr "Aus, solange du online spielst (ein Mod sperrt es)."
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turbo"

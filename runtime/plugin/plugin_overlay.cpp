@@ -36,6 +36,9 @@ void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void vk_queue_lock(void);
 void vk_queue_unlock(void);
 }
+#include "ui/menu/binds_page.h"
+#include "ui/menu/option_rows.h"
+#include "ui/menu/settings_tabs.h"
 
 static_assert(sizeof(MkwDrawVert) == sizeof(ImDrawVert) && offsetof(MkwDrawVert, u) == offsetof(ImDrawVert, uv) &&
               offsetof(MkwDrawVert, col) == offsetof(ImDrawVert, col), "MkwDrawVert is copied as ImDrawVert");
@@ -61,6 +64,7 @@ static struct {
     std::atomic<int> picture;   // overlay_picture's max_height, 0 off
     void (*on_fault)(void *user);
     void *fault_user;
+    int owner;                  // the plugin's slot (plugin.c), for menu_redirect
     ImDrawList *list;           // present thread: this frame's drawing
     int used;                   // present thread: list was drawn into this frame
 } g_draws[MAX_DRAWS];
@@ -96,13 +100,20 @@ static void capture_set(int i, int flags) {
     }
 }
 
-extern "C" int plugin_overlay_add(MkwOverlayFn fn, void *user) {
+extern "C" int plugin_overlay_add(MkwOverlayFn fn, void *user, int owner) {
     int n = g_n.load();
     if (!fn || n == MAX_DRAWS || index_of(fn) >= 0) return 0;
     g_draws[n].fn = fn;
     g_draws[n].user = user;
+    g_draws[n].owner = owner;
     g_n.store(n + 1);
     return 1;
+}
+
+extern "C" int plugin_overlay_owner_dead(int owner) {
+    for (int i = 0, n = g_n.load(); i < n; i++)
+        if (g_draws[i].owner == owner && g_draws[i].dead.load()) return 1;
+    return 0;
 }
 
 extern "C" int plugin_overlay_on_fault(MkwOverlayFn fn, void (*cb)(void *user), void *user) {
@@ -116,27 +127,30 @@ extern "C" int plugin_overlay_on_fault(MkwOverlayFn fn, void (*cb)(void *user), 
 extern "C" void plugin_overlay_show(MkwOverlayFn fn, int on) {
     int i = index_of(fn);
     if (i < 0 || (on && g_draws[i].dead.load())) return;
-    if (g_draws[i].shown.exchange(on != 0) != (on != 0)) g_shown.fetch_add(on ? 1 : -1);
+    bool changed = g_draws[i].shown.exchange(on != 0) != (on != 0), hid = changed && !on;
+    if (changed) g_shown.fetch_add(on ? 1 : -1);
     if (!on && g_cap.load() == i) {
         plat_mutex_lock(&g_cap_lock);
         if (g_cap.load() == i) capture_set(-1, 0);
         plat_mutex_unlock(&g_cap_lock);
     }
+    if (hid) opt_save_tick(1);   // API 6: a setting its page changed goes to mkw.ini now
 }
 
 extern "C" int plugin_overlay_capture(MkwOverlayFn fn, int flags) {
-    int i = index_of(fn), ok = 0;
+    int i = index_of(fn), ok = 0, released = 0;
     if (i < 0) return 0;
     plat_mutex_lock(&g_cap_lock);
     int cur = g_cap.load();
     if (!(flags & MKW_CAPTURE_INPUT)) {
-        if (cur == i) capture_set(-1, 0);
+        if (cur == i) capture_set(-1, 0), released = 1;
         ok = 1;
     } else if ((cur < 0 || cur == i) && g_draws[i].shown.load() && !g_draws[i].dead.load()) {
         capture_set(i, flags & (MKW_CAPTURE_INPUT | MKW_CAPTURE_TEXT));
         ok = 1;
     }
     plat_mutex_unlock(&g_cap_lock);
+    if (released) opt_save_tick(1);   // API 6: a setting its page changed goes to mkw.ini now
     return ok;
 }
 
@@ -712,9 +726,86 @@ static void faulted(int i, const PlatCrash *why) {
                (unsigned long long)again.offset);
 }
 
+// ---- version 6: the in-game menu's settings for a plugin's page (settings_tabs.cpp replays its tabs into a recorder)
+static thread_local int t_drawing;   // inside a drawing's callback: the present thread, in the overlay's frame
+static PlatMutex g_set_lock = PLAT_MUTEX_INIT;
+struct SetReq { int tab; char *id, *value; };   // tab -1: settings_confirm_reset
+enum { MAX_SETS = 64 };
+static SetReq g_sets[MAX_SETS];
+static int g_sets_n;
+
+static int set_now(int tab, const char *id, const char *value) {
+    OptSink s = {};
+    s.inject_id = id;
+    s.inject_value = value ? value : "";
+    if (settings_tab_record(tab, &s) < 0) return -1;
+    return s.result > 0 ? 0 : -1;
+}
+
+static int set_queue(int tab, const char *id, const char *value) {
+    int ok = 0;
+    plat_mutex_lock(&g_set_lock);
+    if (g_sets_n < MAX_SETS) {
+        SetReq &r = g_sets[g_sets_n];
+        r.tab = tab, r.id = strdup(id), r.value = strdup(value ? value : "");
+        if (r.id && r.value) g_sets_n++, ok = 1;
+        else free(r.id), free(r.value);
+    }
+    plat_mutex_unlock(&g_set_lock);
+    return ok ? 0 : -1;
+}
+
+static void sets_drain(void) {
+    SetReq q[MAX_SETS];
+    plat_mutex_lock(&g_set_lock);
+    int n = g_sets_n;
+    memcpy(q, g_sets, sizeof *q * (size_t)n);
+    g_sets_n = 0;
+    plat_mutex_unlock(&g_set_lock);
+    for (int i = 0; i < n; i++) {
+        if (q[i].tab < 0) settings_confirm_reset();
+        else if (set_now(q[i].tab, q[i].id, q[i].value) < 0)
+            rt_log("plugin: settings_set(%d, %s, \"%s\") refused", q[i].tab, q[i].id, q[i].value);
+        free(q[i].id);
+        free(q[i].value);
+    }
+}
+
+extern "C" int plugin_settings_tabs(const char **names, int max) {
+    int n = settings_tab_count();
+    for (int i = 0; names && i < n && i < max; i++) names[i] = settings_tab_name(i);
+    return n;
+}
+
+extern "C" int plugin_settings_rows(int tab, MkwSettingFn cb, void *user) {
+    if (!t_drawing || !cb || opt_sinking()) return -1;
+    OptSink s = {};
+    s.cb = cb, s.user = user;
+    return settings_tab_record(tab, &s);
+}
+
+extern "C" int plugin_settings_set(int tab, const char *id, const char *value) {
+    if (!id || !*id) return -1;
+    if (!t_drawing || opt_sinking()) return set_queue(tab, id, value);   // another thread, or inside a row's cb
+    return set_now(tab, id, value);
+}
+
+extern "C" int plugin_settings_confirm_reset(void) {
+    if (!t_drawing || opt_sinking()) return set_queue(-1, "", "");
+    settings_confirm_reset();
+    return 0;
+}
+
+extern "C" const char *plugin_settings_status(void) {
+    return cfg_last_save_ok() ? nullptr : menu_text(UI_MENU_SAVE_FAILED);
+}
+
 // perf: where the runtime's own display at the top right is this frame (menu.cpp), zeros when off
 extern "C" void plugins_overlay_draw(float width, float height, float scale, const float perf[4]) {
     if (!plugins_overlay_wanted()) return;
+    sets_drain();             // settings_set from other threads (API 6)
+    binds_capture_tick();     // a binding capture a page started goes on with the menu shut
+    opt_save_tick(0);         // and what a page changed reaches mkw.ini with the menu shut
     ImGuiIO &io = ImGui::GetIO();
     int cap = g_cap.load();
     bool over = menu_is_open() || text_entry_up(), input = cap >= 0 && !over;
@@ -753,9 +844,13 @@ extern "C" void plugins_overlay_draw(float width, float height, float scale, con
         for (int k = 0; k < 4; k++) o.perf[k] = perf ? perf[k] : 0;
         Call c = {i, &o};
         PlatCrash why = {};
-        if (guarded(call_draw, &c, &why)) {
+        t_drawing = 1;
+        int ok = guarded(call_draw, &c, &why);
+        t_drawing = 0;
+        if (ok) {
             g_draws[i].used = 1;
         } else {
+            opt_sink_abort();          // a fault inside a settings_rows callback: the menu's rows as they were
             dl->_ResetForNewFrame();   // whatever it had drawn is left out
             faulted(i, &why);
         }

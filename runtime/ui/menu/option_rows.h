@@ -13,6 +13,8 @@
 #pragma once
 #include "imgui.h"
 
+#include "plugin/mkw_plugin.h"   // MkwSettingRow: the recorder below
+
 extern "C" {
 #include "ui_text.h"
 }
@@ -108,3 +110,24 @@ int opt_bind_row(const char *key, const char *label, UiTextId desc, const char *
 int opt_save_tick(int force);
 // A change made outside a row (Reset, F10): mkw.ini is written as after a row's change.
 void opt_save_soon(void);
+
+// ---- the recorder (plugin API 6: MkwPluginApi.settings_rows / settings_set, plugin/plugin_overlay.cpp)
+// Between opt_sink_begin and opt_sink_end the rows make no ImGui call: each one is reported to cb as an MkwSettingRow
+// (its strings valid during cb), and the row whose id is inject_id takes inject_value as the player's change would:
+// through the same write, and the row returns true so the tab's own follow-up runs (the Quality cascade, the
+// libraries' download, Undo). A paragraph (opt_text) right after a setting row is that row's note. The menu's own
+// per-frame state (the cursor, the description pane, opt_disable_next, opt_indent) is kept as it was. Present thread.
+struct OptSink {
+    MkwSettingFn cb;                        // NULL: nothing reported (a pass that only applies inject_value)
+    void *user;
+    uint32_t flags;                         // MKW_SETF_* added to every row (MKW_SETF_DIM)
+    const char *inject_id, *inject_value;   // NULL: no change
+    int result;                             // out: 0 no row has inject_id, 1 changed, 2 found (nothing to change),
+                                            // -1 refused (greyed out, or a value the row does not take)
+};
+void opt_sink_begin(OptSink *s);
+void opt_sink_end(void);
+bool opt_sinking(void);
+void opt_sink_refuse(void);         // the row just reported refuses the change after all (result -1)
+void opt_sink_abort(void);          // a pass left by a fault (longjmp): the menu's state back, no sink
+void opt_bind_capture(int cell);    // before opt_bind_row in a pass: that cell is capturing (-1 none)

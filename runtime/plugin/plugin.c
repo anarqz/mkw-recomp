@@ -12,6 +12,7 @@
 #include "cfg.h"
 #include "dispatch.h"
 #include "gfx.h"
+#include "hacks.h"
 #include "host.h"
 #include "input_wsys.h"
 #include "mkw_plugin.h"
@@ -175,7 +176,7 @@ static uint64_t api_call_original(MkwCpu *m) {
 static MkwCpu *api_current_cpu(void) { return (MkwCpu *)kern_cpu(); }
 
 static int api_overlay_set(MkwOverlayFn draw, void *user) {
-    if (!in_init || !plugin_overlay_add(draw, user)) {
+    if (!in_init || !plugin_overlay_add(draw, user, cur_plugin)) {
         rt_log("plugin: overlay_set refused: only from mkw_plugin_init, with a function, at most 16");
         return 0;
     }
@@ -236,7 +237,7 @@ void plugins_input_filter(int player, uint64_t *buttons, int32_t sticks[4], int 
 }
 
 static void api_menu_open(int open) {
-    if ((menu_is_open() != 0) != (open != 0)) menu_toggle();
+    if ((menu_is_open() != 0) != (open != 0)) menu_toggle_own();
 }
 
 static struct { MkwFrameFn cb; void *user; int max_w, max_h; } frame_req;
@@ -310,6 +311,37 @@ static int api_key_state(int code) {
     return code > 0 && code < n && held && held[code] && ikb_foreground();
 }
 
+// ---- version 6: the menu's settings are plugin_overlay.cpp's; the menu's keys first to a plugin's page (one entry
+// per plugin slot, as setting_get: the table has no context argument)
+static struct { int (*open)(void *user); void *user; } redirect[MAX_PLUGINS];   // __atomic_* access
+
+static void redirect_of(int i, int (*open)(void *user), void *user) {
+    __atomic_store_n(&redirect[i].user, user, __ATOMIC_RELAXED);
+    __atomic_store_n(&redirect[i].open, open, __ATOMIC_RELEASE);
+    rt_log("plugin: %s: the menu's keys %s", plugins[i].mod_name, open ? "open its page first" : "are the runtime's again");
+}
+#define SLOT(i) static void redir##i(int (*o)(void *), void *u) { redirect_of(i, o, u); }
+SLOT(0) SLOT(1) SLOT(2) SLOT(3) SLOT(4) SLOT(5) SLOT(6) SLOT(7) SLOT(8) SLOT(9) SLOT(10) SLOT(11) SLOT(12) SLOT(13)
+SLOT(14) SLOT(15) SLOT(16) SLOT(17) SLOT(18) SLOT(19) SLOT(20) SLOT(21) SLOT(22) SLOT(23) SLOT(24) SLOT(25) SLOT(26)
+SLOT(27) SLOT(28) SLOT(29) SLOT(30) SLOT(31)
+#undef SLOT
+#define S(i) redir##i
+static void (*const redirect_slot[MAX_PLUGINS])(int (*)(void *), void *) = {
+    S(0), S(1), S(2), S(3), S(4), S(5), S(6), S(7), S(8), S(9), S(10), S(11), S(12), S(13), S(14), S(15),
+    S(16), S(17), S(18), S(19), S(20), S(21), S(22), S(23), S(24), S(25), S(26), S(27), S(28), S(29), S(30), S(31)};
+#undef S
+
+// ui/menu/menu.cpp menu_toggle, before the runtime's menu opens: the plugins in load order, one whose drawing faulted
+// left out (its page may be gone with it, so the runtime's menu works again)
+int plugins_menu_redirect(void) {
+    for (int i = 0; i < nplugins; i++) {
+        int (*open)(void *) = __atomic_load_n(&redirect[i].open, __ATOMIC_ACQUIRE);
+        if (!open || plugin_overlay_owner_dead(i)) continue;
+        if (open(__atomic_load_n(&redirect[i].user, __ATOMIC_RELAXED))) return 1;
+    }
+    return 0;
+}
+
 // gfx/nvn/procs/nvn2.c: images a plugin fills (version 3)
 uint32_t nvn2_native_image_create(int w, int h, void **pixels, int *row_bytes);
 int nvn2_native_image_touch(uint32_t handle);
@@ -350,6 +382,12 @@ static const MkwPluginApi api_template = {
     .key_state = api_key_state,
     .overlay_on_fault = api_overlay_on_fault,
     .overlay_picture = plugin_overlay_picture,
+    .settings_tabs = plugin_settings_tabs,
+    .settings_rows = plugin_settings_rows,
+    .settings_set = plugin_settings_set,
+    .settings_confirm_reset = plugin_settings_confirm_reset,
+    .settings_status = plugin_settings_status,
+    .hacks_lock = hacks_lock,
 };
 
 // A plugin that declines or fails to load is told to the player too: the mod they enabled does nothing this run.
@@ -389,6 +427,8 @@ static int load_one(const char *name, void *ctx) {
     q->api.profile_name = profile_name;
     q->api.setting_get = setting_get_slot[nplugins];
     q->api.setting_set = setting_set_slot[nplugins];
+    q->api.menu_redirect = redirect_slot[nplugins];
+    redirect[nplugins].open = NULL;   // a slot a declined plugin left
     const char *message = NULL;
     in_init = 1;
     cur_plugin = nplugins;

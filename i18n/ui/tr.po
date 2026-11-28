@@ -64,6 +64,10 @@ msgstr ""
 "Deneysel: konsolda olmayan kısayollar; daha hızlı oynamak ve denemek için. Oyunun davranışını "
 "değiştirebilirler."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turbo"

@@ -64,6 +64,10 @@ msgstr ""
 "Esperimentala: kontsolak ez dituen lasterbideak, azkarrago jolasteko eta probatzeko. Jokoaren "
 "portaera alda dezakete."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turboa"

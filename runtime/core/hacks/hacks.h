@@ -36,3 +36,12 @@ int unlock_save(uint8_t *save, uint64_t size);  // the changes made; 0 for a sav
 // VS is laps on one course
 void classic_seen(void *p, size_t n);      // ov_zstd.c: n bytes the host zstd decoder wrote (the archive, when it is)
 void classic_poll(void);                   // menu.cpp, each frame: a setting changed, the game's copies follow
+
+// ---- the lock (lock.c, plugin API 6 hacks_lock): a plugin says the player is online; the hacks that could give an
+// edge are ignored while it holds (turbo, freeze, skip movies, seed, Classic GP / VS, the logic rate, unlock all, the
+// input script and with it the quick race). hacks_lock returns the MKW_HACK_* already applied at start (seed,
+// unlock all), which no lock takes back.
+int hacks_locked(void);
+int hacks_lock(int on);
+int seed_used(void);        // seed.c: a seed came from MKW_SEED this run
+int unlock_applied(void);   // unlock.c: this run's account.sav was edited

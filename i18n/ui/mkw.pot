@@ -62,6 +62,10 @@ msgid ""
 "change how the game behaves."
 msgstr ""
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr ""

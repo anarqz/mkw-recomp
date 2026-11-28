@@ -64,7 +64,8 @@ int frame_logic_hz(void) {
             hz = 60;
         }
     }
-    return hz != 60 && !hz_tt && race_scene_time_trial() ? 60 : hz;
+    // and while a plugin locks the hacks (core/hacks/lock.c: the player is online), as in time trial
+    return hz != 60 && ((!hz_tt && race_scene_time_trial()) || hacks_locked()) ? 60 : hz;
 }
 
 // Game speed, for tools/run/summary.py: game seconds per real second over each window, and how often the interval

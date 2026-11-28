@@ -5,6 +5,7 @@
 // Copyright (c) 2026 Peiikai): the row look, the two panes, the left / right stepping and the hold speed-up. The rows
 // read and write cfg keys instead of a settings struct, take their text from the menu catalog (menu_text), and show
 // the default, "after restart" and environment notes; the text field, radio and on-screen keyboard rows are not ported.
+#include <atomic>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +89,14 @@ void opt_indent(bool on) { g_indent = on; }
 
 void opt_hide_desc(bool hide) { g_hide_desc = hide; }
 
+static OptSink *g_sink;   // the recorder (below): no ImGui while it is set
+static void sink_flush(void);
+
 void opt_begin(const char *id, float scale) {
+    if (g_sink) {
+        g_indent = false;
+        return;
+    }
     g_scale = scale;
     g_take_first = g_focus_req;
     g_focus_req = false;
@@ -122,6 +130,10 @@ static float g_test_scroll = -1;
 void opt_test_scroll(float f) { g_test_scroll = f; }
 
 void opt_end(void) {
+    if (g_sink) {
+        sink_flush();
+        return;
+    }
     ImGui::PopStyleVar();
     if (g_test_scroll >= 0) ImGui::SetScrollY(ImGui::GetScrollMaxY() * g_test_scroll);
     ImGui::EndChild();
@@ -265,8 +277,9 @@ static int row_text(const char *key, const char *label, UiTextId desc, const Row
 }
 
 // ---- writing a setting: at once in memory (live settings follow), to mkw.ini a moment later (opt_save_tick)
-static uint64_t g_save_at;   // plat_now_ns deadline of the pending write; 0 none
-static bool g_save_logged;
+// g_save_at is atomic: a plugin's overlay flushes the write from the thread that hides it (plugin_overlay.cpp)
+static std::atomic<uint64_t> g_save_at;   // plat_now_ns deadline of the pending write; 0 none
+static std::atomic<bool> g_save_logged;
 
 static void apply(const char *key, const char *value) {
     if (*value) {
@@ -278,17 +291,170 @@ static void apply(const char *key, const char *value) {
     opt_save_soon();
 }
 
-void opt_save_soon(void) { g_save_at = plat_now_ns() + 400000000ull; }
+void opt_save_soon(void) { g_save_at.store(plat_now_ns() + 400000000ull); }
 
 int opt_save_tick(int force) {
-    if (!g_save_at || (!force && plat_now_ns() < g_save_at)) return g_save_at != 0;
-    g_save_at = 0;
-    if (!cfg_save() && !g_save_logged) {
-        g_save_logged = true;
+    uint64_t at = g_save_at.load();
+    if (!at || (!force && plat_now_ns() < at)) return at != 0;
+    if (!g_save_at.compare_exchange_strong(at, 0)) return 1;   // changed meanwhile: the newer deadline holds
+    if (!cfg_save() && !g_save_logged.exchange(true))
         rt_log("menu: could not write mkw.ini; the changed settings hold for this session");
-    }
     return 0;
 }
+
+// ---- the recorder (option_rows.h OptSink): rows reported as MkwSettingRow instead of drawn
+static struct {   // the menu's per-frame state a pass may touch, put back by opt_sink_end
+    bool disable_next, indent, held;
+    UiTextId disable_note;
+} g_sink_saved;
+static int g_bind_cap = -1;   // opt_bind_capture
+
+// A reported row is held until the next one (a paragraph right after it becomes its note), with its strings and lists
+// copied: the tab's own arrays may be gone by then.
+static MkwSettingRow g_pend;
+static bool g_have_pend;
+static char g_arena[65536];
+static size_t g_arena_n;
+enum { SINK_CHOICES = 64 };
+static const char *g_pv[SINK_CHOICES], *g_pn[SINK_CHOICES];
+
+static const char *adup(const char *s) {
+    if (!s) return nullptr;
+    size_t n = strlen(s) + 1;
+    if (g_arena_n + n > sizeof g_arena) return "";
+    char *d = g_arena + g_arena_n;
+    memcpy(d, s, n);
+    g_arena_n += n;
+    return d;
+}
+
+static void sink_flush(void) {
+    if (g_have_pend && g_sink && g_sink->cb) g_sink->cb(&g_pend, g_sink->user);
+    g_have_pend = false;
+    g_arena_n = 0;
+}
+
+static void sink_emit(const MkwSettingRow &r) {
+    sink_flush();
+    g_pend = r;
+    g_pend.id = adup(r.id);
+    g_pend.label = adup(r.label ? r.label : "");
+    g_pend.desc = adup(r.desc);
+    g_pend.note = r.note && *r.note ? adup(r.note) : nullptr;
+    g_pend.value = adup(r.value ? r.value : "");
+    g_pend.value_text = adup(r.value_text ? r.value_text : "");
+    g_pend.fmt = adup(r.fmt);
+    for (int c = 0; c < 3; c++) g_pend.cells[c] = adup(r.cells[c]);
+    int n = r.n_choices < 0 ? 0 : r.n_choices > SINK_CHOICES ? SINK_CHOICES : r.n_choices;
+    for (int i = 0; i < n; i++) g_pv[i] = adup(r.choice_values[i]), g_pn[i] = adup(r.choice_names[i]);
+    g_pend.n_choices = n;
+    g_pend.choice_values = n ? g_pv : nullptr;
+    g_pend.choice_names = n ? g_pn : nullptr;
+    if (g_pend.current >= n && r.kind == MKW_SET_CHOICE) g_pend.current = -1;
+    if (g_pend.def >= n && r.kind == MKW_SET_CHOICE) g_pend.def = -1;
+    g_have_pend = true;
+}
+
+static void sink_blank(MkwSettingRow &r, uint32_t kind) {
+    memset(&r, 0, sizeof r);
+    r.size = sizeof r;
+    r.kind = kind;
+    r.flags = g_sink->flags;
+    r.capture_cell = -1;
+    r.current = r.def = -1;
+    r.value = r.value_text = "";
+}
+
+static void sink_text(const char *t, bool warn) {
+    if (g_have_pend && g_pend.kind != MKW_SET_GROUP && g_pend.kind != MKW_SET_TEXT) {   // the row's note
+        if (g_pend.note) {
+            char both[1200];
+            snprintf(both, sizeof both, "%s\n%s", g_pend.note, t);
+            g_pend.note = adup(both);
+        } else {
+            g_pend.note = adup(t);
+        }
+        if (warn) g_pend.flags |= MKW_SETF_WARNING;
+        return;
+    }
+    MkwSettingRow r;
+    sink_blank(r, MKW_SET_TEXT);
+    if (warn) r.flags |= MKW_SETF_WARNING;
+    r.label = t;
+    sink_emit(r);
+}
+
+// The parts every setting row has; takes opt_disable_next as row_text does. Returns true when the row is greyed out.
+static bool sink_fill(MkwSettingRow &r, uint32_t kind, const char *key, const char *label, UiTextId desc,
+                      const char *desc_note, const char *value_note, bool is_default) {
+    static char d[1024], n[256];
+    const CfgMeta *m = cfg_meta(key);
+    const char *disabled = g_disable_next ? menu_text(g_disable_note) : NULL;
+    g_disable_next = false;
+    bool env = cfg_from_env(key) != 0, off = disabled || env;
+    sink_blank(r, kind);
+    r.flags |= (off ? MKW_SETF_DISABLED : 0) | (env ? MKW_SETF_ENV : 0) | (m && !m->live ? MKW_SETF_RESTART : 0) |
+               (is_default ? MKW_SETF_DEFAULT : 0) | (g_indent ? MKW_SETF_INDENT : 0);
+    r.id = key;
+    r.label = label;
+    snprintf(d, sizeof d, "%s%s%s", menu_text(desc), desc_note ? "\n\n" : "", desc_note ? desc_note : "");
+    r.desc = d;
+    if (value_note) {
+        r.note = value_note;
+    } else if (disabled) {
+        r.note = disabled;
+    } else if (env) {
+        snprintf(n, sizeof n, "%s %s", menu_text(UI_MENU_SET_BY_ENV), key);
+        r.note = n;
+    }
+    return off;
+}
+
+// The injected value when this row is the one it is for; a greyed-out row refuses it.
+static const char *sink_take(const char *id, bool off) {
+    if (!g_sink->inject_id || g_sink->result || !id || strcmp(g_sink->inject_id, id)) return nullptr;
+    if (off) {
+        g_sink->result = -1;
+        return nullptr;
+    }
+    g_sink->result = 2;
+    return g_sink->inject_value ? g_sink->inject_value : "";
+}
+
+static bool sink_changed(void) { return g_sink->result = 1, true; }
+static bool sink_bad(void) { return g_sink->result = -1, false; }
+
+void opt_sink_begin(OptSink *s) {
+    g_sink_saved = {g_disable_next, g_indent, g_held, g_disable_note};
+    g_disable_next = g_indent = g_held = false;
+    g_have_pend = false;
+    g_arena_n = 0;
+    g_bind_cap = -1;
+    s->result = 0;
+    g_sink = s;
+}
+
+void opt_sink_end(void) {
+    if (!g_sink) return;
+    sink_flush();
+    g_sink = nullptr;
+    g_disable_next = g_sink_saved.disable_next, g_indent = g_sink_saved.indent, g_held = g_sink_saved.held;
+    g_disable_note = g_sink_saved.disable_note;
+}
+
+void opt_sink_abort(void) {
+    if (!g_sink) return;
+    g_have_pend = false;   // nothing more is reported to a callback that faulted
+    opt_sink_end();
+}
+
+bool opt_sinking(void) { return g_sink != nullptr; }
+
+void opt_sink_refuse(void) {
+    if (g_sink && g_sink->result > 0) g_sink->result = -1;
+}
+
+void opt_bind_capture(int cell) { g_bind_cap = cell; }
 
 // ---- rows
 
@@ -301,6 +467,19 @@ bool opt_toggle(const char *key, UiTextId label, UiTextId desc, bool inverted) {
     bool set = cfg_bool(key) != 0, def = m && strcmp(m->def, "0") != 0;
     bool on = set != inverted;   // what the row shows
     RowView v = {menu_text(on ? UI_MENU_ON : UI_MENU_OFF), set == def, false, NULL};
+    if (g_sink) {
+        MkwSettingRow r;
+        bool off = sink_fill(r, MKW_SET_TOGGLE, key, menu_text(label), desc, nullptr, nullptr, set == def);
+        r.value = on ? "1" : "0";
+        r.value_text = v.value;
+        sink_emit(r);
+        const char *in = sink_take(key, off);
+        if (!in) return false;
+        if (strcmp(in, "0") && strcmp(in, "1")) return sink_bad();
+        if ((*in == '1') == on) return false;
+        apply(key, set ? "0" : "1");
+        return sink_changed();
+    }
     if (!row(key, label, desc, v)) return false;   // any step flips it
     apply(key, set ? "0" : "1");
     return true;
@@ -308,10 +487,30 @@ bool opt_toggle(const char *key, UiTextId label, UiTextId desc, bool inverted) {
 
 void opt_info(const char *id, const char *label, const char *value, UiTextId desc, const char *note) {
     RowView v = {value ? value : "", false, false, note};
+    if (g_sink) {
+        MkwSettingRow r;
+        bool off = sink_fill(r, MKW_SET_INFO, id, label, desc, nullptr, note, false);
+        r.value = r.value_text = v.value;
+        sink_emit(r);
+        if (sink_take(id, off)) sink_bad();   // nothing to change
+        return;
+    }
     row_text(id, label, desc, v);
 }
 
+// A button in a pass: "press" runs it
+static bool sink_button(const char *id, const char *label, UiTextId desc, const char *value) {
+    MkwSettingRow r;
+    bool off = sink_fill(r, MKW_SET_BUTTON, id, label, desc, nullptr, nullptr, false);
+    r.value_text = value ? value : "";
+    sink_emit(r);
+    const char *in = sink_take(id, off);
+    if (!in) return false;
+    return strcmp(in, "press") ? sink_bad() : sink_changed();
+}
+
 bool opt_button(const char *id, UiTextId label, UiTextId desc, const char *value) {
+    if (g_sink) return sink_button(id, menu_text(label), desc, value);
     RowView v = {value ? value : "", false, false, NULL};
     return row(id, label, desc, v) == 2;   // A or a click; left and right do nothing
 }
@@ -319,11 +518,19 @@ bool opt_button(const char *id, UiTextId label, UiTextId desc, const char *value
 bool opt_start_screen(void) { return g_look->quiet; }
 
 bool opt_button_text(const char *id, const char *label, UiTextId desc, const char *value) {
+    if (g_sink) return sink_button(id, label, desc, value);
     RowView v = {value ? value : "", false, false, NULL};
     return row_text(id, label, desc, v) == 2;
 }
 
 void opt_group(UiTextId title) {
+    if (g_sink) {
+        MkwSettingRow r;
+        sink_blank(r, MKW_SET_GROUP);
+        r.label = menu_text(title);
+        sink_emit(r);
+        return;
+    }
     ImGui::Dummy(ImVec2(0, 6 * g_scale));
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(g_look->group), "%s", menu_text(title));
 }
@@ -331,6 +538,10 @@ void opt_group(UiTextId title) {
 void opt_text(UiTextId text, bool warn) { opt_text(menu_text(text), warn); }
 
 void opt_text(const char *text, bool warn) {
+    if (g_sink) {
+        sink_text(text, warn);
+        return;
+    }
     ImGui::PushTextWrapPos(0);
     if (warn) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(g_look->warn), "%s", text);
     else ImGui::TextUnformatted(text);
@@ -348,6 +559,24 @@ bool opt_choice_list(const char *key, UiTextId label, const char *const *values,
     for (int i = 0; m && i < n; i++)
         if (!strcmp(values[i], m->def)) def = i;
     RowView v = {cur >= 0 ? names[cur] : now, cur == def, true, note, desc_note};
+    if (g_sink) {
+        MkwSettingRow r;
+        bool off = sink_fill(r, MKW_SET_CHOICE, key, menu_text(label), desc, desc_note, note, cur == def);
+        r.value = now;
+        r.value_text = v.value;
+        r.n_choices = n, r.current = cur, r.def = def;
+        r.choice_values = values, r.choice_names = names;
+        sink_emit(r);
+        const char *in = sink_take(key, off);
+        if (!in) return false;
+        int nv = -1;
+        for (int i = 0; i < n && nv < 0; i++)
+            if (!strcmp(values[i], in)) nv = i;
+        if (nv < 0) return sink_bad();
+        if (nv == cur) return false;
+        apply(key, values[nv]);
+        return sink_changed();
+    }
     int step = row(key, label, desc, v);
     if (!step || n <= 0) return false;
     int nv;
@@ -390,6 +619,28 @@ bool opt_slider(const char *key, UiTextId label, float lo, float hi, UiTextId de
     char shown[48];
     snprintf(shown, sizeof shown, fmt, v);
     RowView rv = {shown, fabs(v - def) < step * 0.01, true, NULL};
+    if (g_sink) {
+        MkwSettingRow r;
+        bool off = sink_fill(r, MKW_SET_SLIDER, key, menu_text(label), desc, nullptr, nullptr, rv.is_default);
+        r.value = cfg_value(key);
+        r.value_text = shown;
+        r.num = v, r.lo = lo, r.hi = hi, r.step = step, r.auto_start = lo;
+        r.fmt = fmt;
+        sink_emit(r);
+        const char *in = sink_take(key, off);
+        if (!in) return false;
+        char *end;
+        double x = strtod(in, &end);
+        if (!*in || *end || !isfinite(x)) return sink_bad();
+        double n = round(x / step) * step;
+        n = n < lo ? lo : n > hi ? hi : n;
+        if (fabs(n - v) < step * 0.01) return false;
+        char out[32];
+        if (step >= 1) snprintf(out, sizeof out, "%d", (int)lround(n));
+        else snprintf(out, sizeof out, "%g", round(n / step) * step);
+        apply(key, out);
+        return sink_changed();
+    }
     int s = row(key, label, desc, rv);
     if (!s) return false;
     int steps = g_held && (hi - lo) > 40 * step ? 10 : 1;   // held: ten steps at a time over a long range
@@ -412,6 +663,40 @@ bool opt_slider_auto(const char *key, UiTextId label, int lo, int hi, UiTextId d
     if (is_auto) snprintf(shown, sizeof shown, "%s", auto_name);
     else snprintf(shown, sizeof shown, fmt, v);
     RowView rv = {shown, is_auto != 0, true, NULL};
+    if (g_sink) {
+        MkwSettingRow r;
+        bool off = sink_fill(r, MKW_SET_SLIDER, key, menu_text(label), desc, nullptr, nullptr, is_auto != 0);
+        r.flags |= MKW_SETF_AUTO;
+        char num[16], dfmt[48];
+        snprintf(num, sizeof num, "%d", v);
+        r.value = is_auto ? "" : num;
+        r.value_text = shown;
+        r.num = is_auto ? lo - 1 : v, r.lo = lo, r.hi = hi, r.step = 1;
+        r.auto_start = start < lo ? lo : start > hi ? hi : start;
+        // fmt takes an int here ("%d nits"); the row's takes a double
+        const char *d = strstr(fmt, "%d");
+        if (d) snprintf(dfmt, sizeof dfmt, "%.*s%%.0f%s", (int)(d - fmt), fmt, d + 2);
+        else snprintf(dfmt, sizeof dfmt, "%%.0f");
+        r.fmt = dfmt;
+        sink_emit(r);
+        const char *in = sink_take(key, off);
+        if (!in) return false;
+        int n;
+        if (!*in || !strcmp(in, "auto")) {
+            n = 0;
+        } else {
+            char *end;
+            double x = strtod(in, &end);
+            if (*end || !isfinite(x)) return sink_bad();
+            n = (int)lround(x < lo ? lo : x > hi ? hi : x);
+        }
+        if (n == (is_auto ? 0 : v)) return false;
+        char out[16];
+        if (n <= 0) snprintf(out, sizeof out, "auto");
+        else snprintf(out, sizeof out, "%d", n);
+        apply(key, out);
+        return sink_changed();
+    }
     int s = row(key, label, desc, rv);
     if (!s) return false;
     int steps = g_held ? 10 : 1;   // held: ten at a time
@@ -457,6 +742,14 @@ static void bind_columns(float x, float w, float cx[3], float *cw) {
 }
 
 void opt_bind_header(UiTextId c0, UiTextId c1, UiTextId c2) {
+    if (g_sink) {   // the column titles, as an INFO row of their own
+        MkwSettingRow r;
+        sink_blank(r, MKW_SET_INFO);
+        r.id = "##bind_header";
+        r.cells[0] = menu_text(c0), r.cells[1] = menu_text(c1), r.cells[2] = menu_text(c2);
+        sink_emit(r);
+        return;
+    }
     ImVec2 p = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x, cx[3], cw, fs = ImGui::GetFontSize() * 0.8f;
     bind_columns(p.x, w, cx, &cw);
@@ -473,11 +766,37 @@ void opt_bind_header(UiTextId c0, UiTextId c1, UiTextId c2) {
 // opt_bind_icon: the next row's cell shows that controller button as an icon (ui/glyphs/pad_icons.h) instead of its name
 static struct { int pad, kind; } g_icon[3];
 void opt_bind_icon(int cell, int pad, int kind) {
-    if (cell >= 0 && cell < 3) g_icon[cell] = {pad, kind};
+    if (cell >= 0 && cell < 3 && !g_sink) g_icon[cell] = {pad, kind};
+}
+
+static int sink_bind_row(const char *key, const char *label, UiTextId desc, const char *const cells[3],
+                         const bool enabled[3], const char *note) {
+    char k[64];
+    snprintf(k, sizeof k, "MKW_%s", key);
+    MkwSettingRow r;
+    sink_fill(r, MKW_SET_BIND, k, label, desc, nullptr, note, false);
+    r.flags &= ~(uint32_t)MKW_SETF_DISABLED;   // as the menu: a binding row takes changes either way
+    r.id = key;
+    for (int c = 0; c < 3; c++) {
+        r.cells[c] = cells[c] ? cells[c] : "";
+        r.cell_enabled[c] = enabled[c];
+    }
+    if (g_bind_cap >= 0) r.flags |= MKW_SETF_CAPTURE, r.capture_cell = g_bind_cap;
+    g_bind_cap = -1;
+    sink_emit(r);
+    const char *in = sink_take(key, false);
+    if (!in) return -1;
+    int cell = -1, clear = 0;
+    if (!strncmp(in, "capture:", 8)) cell = atoi(in + 8);
+    else if (!strncmp(in, "clear:", 6)) cell = atoi(in + 6), clear = 1;
+    if (cell < 0 || cell > 2 || !enabled[cell]) return sink_bad(), -1;
+    sink_changed();
+    return clear ? 10 + cell : cell;
 }
 
 int opt_bind_row(const char *key, const char *label, UiTextId desc, const char *const cells[3], const bool enabled[3],
                  const char *note) {
+    if (g_sink) return sink_bind_row(key, label, desc, cells, enabled, note);
     ImGui::PushID(key);
     ImVec2 p = ImGui::GetCursorScreenPos();
     float fs = ImGui::GetFontSize(), w = ImGui::GetContentRegionAvail().x, h = floorf(fs * 1.9f), cx[3], cw;

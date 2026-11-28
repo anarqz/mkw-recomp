@@ -64,6 +64,10 @@ msgstr ""
 "Experimental: atajos que la consola no tiene, para jugar y probar más rápido. Pueden cambiar cómo "
 "se comporta el juego."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr "Desactivado mientras juegas en línea (lo bloquea un mod)."
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Turbo"

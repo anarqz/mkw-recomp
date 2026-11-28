@@ -64,6 +64,10 @@ msgstr ""
 "Експериментально: скорочення, яких немає на консолі, щоб грати й тестувати швидше. Вони можуть "
 "змінити поведінку гри."
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "Турбо"

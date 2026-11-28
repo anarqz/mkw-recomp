@@ -62,6 +62,10 @@ msgid ""
 "change how the game behaves."
 msgstr "ทดลอง: ทางลัดที่เครื่องคอนโซลไม่มี ไว้เล่นและทดสอบให้เร็วขึ้น อาจเปลี่ยนการทำงานของเกม"
 
+msgctxt "UI_MENU_HACKS_LOCKED"
+msgid "Off while you play online (a mod locks it)."
+msgstr ""
+
 msgctxt "UI_MENU_TURBO"
 msgid "Turbo"
 msgstr "เทอร์โบ"
