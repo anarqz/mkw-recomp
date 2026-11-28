@@ -169,7 +169,8 @@ static const char *present_note(void) {
 // ---- the tabs
 static void hdr_rows(void);   // after the HDR row, below
 
-// A Hacks row (or the logic rate) greyed out while a plugin locks the hacks (core/hacks/lock.c: the player is online)
+// Turbo, its speed, Same randomness and Freeze greyed out while a plugin locks the hacks (core/hacks/lock.c: the
+// player is online)
 static void locked_next(void) {
     if (hacks_locked()) opt_disable_next(UI_MENU_HACKS_LOCKED);
 }
@@ -458,7 +459,6 @@ static void tab_graphics(float scale) {
     {   // game steps a second (core/boot/game.c frame_logic_hz), read at start
         static const char *const vals[] = {"60", "120", "144", "240"};
         const char *names[4] = {"60 Hz", "120 Hz", "144 Hz", "240 Hz"};
-        locked_next();
         opt_choice_list("MKW_LOGIC_HZ", UI_MENU_LOGIC_HZ, vals, names, 4, UI_MENU_LOGIC_HZ_DESC);
     }
     {   // frames made between the game's (gfx/vk/device/vk_framegen.c), live
@@ -786,20 +786,15 @@ static void tab_hacks(float scale) {
     opt_choice("MKW_TURBO", UI_MENU_TURBO, turbo, 4, UI_MENU_TURBO_DESC);
     locked_next();
     opt_slider("MKW_TURBO_SPEED", UI_MENU_TURBO_SPEED, 2, 8, UI_MENU_TURBO_SPEED_DESC, 1, "x%.0f");
-    locked_next();
     opt_toggle("MKW_SKIP_MOVIES", UI_MENU_SKIP_MOVIES, UI_MENU_SKIP_MOVIES_DESC);
     locked_next();
     row_set_or_not("MKW_SEED", UI_MENU_SEED, UI_MENU_SEED_DESC, "1");
-    locked_next();
     opt_toggle("MKW_UNLOCK_ALL", UI_MENU_UNLOCK_ALL, UI_MENU_UNLOCK_ALL_DESC);
     static const UiTextId quick[] = {UI_MENU_OFF, UI_MENU_QUICK_RACE_TT, UI_MENU_QUICK_RACE_GP, UI_MENU_QUICK_RACE_FREE};
-    locked_next();
     opt_choice("MKW_QUICK_RACE", UI_MENU_QUICK_RACE, quick, 4, UI_MENU_QUICK_RACE_DESC);
     locked_next();
     opt_toggle("MKW_FREEZE_KEYS", UI_MENU_FREEZE_KEYS, UI_MENU_FREEZE_KEYS_DESC);
-    locked_next();
     opt_toggle("MKW_CLASSIC_GP", UI_MENU_CLASSIC_GP, UI_MENU_CLASSIC_GP_DESC);
-    locked_next();
     opt_toggle("MKW_CLASSIC_VS", UI_MENU_CLASSIC_VS, UI_MENU_CLASSIC_VS_DESC);
     opt_end();
 }

@@ -30,7 +30,6 @@ static _Atomic int used;   // a seed came from MKW_SEED this run (hacks_lock rep
 int seed_used(void) { return atomic_load(&used); }
 
 uint64_t seed_tick(uint64_t lr) {
-    if (hacks_locked()) return rt_ticks();   // a plugin's lock (lock.c): the clock, as on the console
     atomic_store(&used, 1);
     int i = 0;
     for (; i < SEED_SITES; i++) {
@@ -53,8 +52,7 @@ uint64_t seed_tick(uint64_t lr) {
 // cursor follow it (tt6a/b: the same world tiles); a clock that went on with the game time was read at another second
 // in each run and gave other courses (qv2-base, qv2-base2).
 int seed_time(int64_t *out) {
-    if (!*cfg_value("MKW_SEED") || hacks_locked()) return 0;
-    atomic_store(&used, 1);
+    if (!*cfg_value("MKW_SEED")) return 0;
     static _Atomic int logged;
     if (!atomic_exchange(&logged, 1)) rt_log("seed: the system clock stopped at 2026-01-01 12:00 UTC (MKW_SEED)");
     *out = 1767268800;
@@ -64,7 +62,7 @@ int seed_time(int64_t *out) {
 // splitmix64: a full-period sequence from any seed, enough for a seed (no cryptographic use reaches GetInfo 11 first)
 int seed_random(uint64_t sub, uint64_t *out) {
     const char *s = cfg_value("MKW_SEED");
-    if (!*s || hacks_locked()) return 0;
+    if (!*s) return 0;
     atomic_store(&used, 1);
     uint64_t base = strtoull(s, NULL, 0);
     uint64_t z = atomic_fetch_add_explicit(&state, 1, memory_order_relaxed);

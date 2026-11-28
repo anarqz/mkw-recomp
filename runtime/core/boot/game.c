@@ -64,8 +64,13 @@ int frame_logic_hz(void) {
             hz = 60;
         }
     }
-    // and while a plugin locks the hacks (core/hacks/lock.c: the player is online), as in time trial
-    return hz != 60 && ((!hz_tt && race_scene_time_trial()) || hacks_locked()) ? 60 : hz;
+    return hz != 60 && !hz_tt && race_scene_time_trial() ? 60 : hz;
+}
+
+// The rate MKW_LOGIC_HZ set at start, time trial or not (core/hacks/lock.c reports it: it cannot change live)
+int frame_logic_hz_set(void) {
+    frame_logic_hz();
+    return hz;
 }
 
 // Game speed, for tools/run/summary.py: game seconds per real second over each window, and how often the interval

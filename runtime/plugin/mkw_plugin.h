@@ -383,19 +383,19 @@ typedef struct MkwPluginApi {
     // menu again. A plugin whose overlay drawing faulted is skipped from then on. Closing the runtime's own menu is
     // unchanged. Any thread.
     void (*menu_redirect)(int (*open)(void *user), void *user);
-    // locked 1 (the plugin's player is online): the runtime ignores the hacks that could give an edge, whatever
-    // mkw.ini or the environment says, and its menu greys their rows out with a note (settings_rows: DISABLED):
-    // turbo at speed 1 (F2 inert, "on" and "until" too), freeze (F3 / F4 inert, a frozen game goes on), skip movies,
-    // the same randomness (generators seeded from here on take the clock), Classic Grand Prix and VS (the game's
-    // copies switched back, as the menu's switch does), the logic rate (60 Hz, as in time trial), unlock everything
-    // (not applied if the game has not opened its save yet), and the input script with MKW_QUICK_RACE and MKW_CTL's
-    // presses. Returns the MKW_HACK_* that were already applied at start and cannot be taken back (the seed: the
-    // system's entropy and the generators made so far; unlock everything: this run's save was edited): the plugin
-    // refuses to go online then. locked 0: as the settings say again; returns 0. Any thread.
+    // locked 1 (the plugin's player is online): the runtime ignores the hacks that can be used to cheat, whatever
+    // mkw.ini or the environment says: turbo runs at speed 1 (F2 inert, "on" and "until" too), freeze keys are inert
+    // (F3 / F4; a frozen game goes on), and the input script plays nothing (MKW_INPUT_SCRIPT, and so MKW_QUICK_RACE's
+    // presses and MKW_CTL's). Its menu greys out Turbo, Turbo speed, Same randomness and Freeze keys with a note
+    // (settings_rows: DISABLED, set refused). The other hacks are left as they are. Returns the MKW_HACK_* that are
+    // on and apply at start only, so no lock can undo them this run: MKW_HACK_SEED (MKW_SEED: the game's generators
+    // were seeded from it) and MKW_HACK_LOGIC_HZ (MKW_LOGIC_HZ other than 60: online races step at that rate); the
+    // plugin refuses to go online then. The other bits are never returned. locked 0: as the settings say again;
+    // returns 0. Any thread.
     int (*hacks_lock)(int locked);
 } MkwPluginApi;
 
-enum {   // hacks_lock's result bits
+enum {   // hacks_lock's result bits (it returns SEED and LOGIC_HZ only; the others name the hacks for completeness)
     MKW_HACK_TURBO = 1, MKW_HACK_FREEZE = 2, MKW_HACK_INPUT_SCRIPT = 4, MKW_HACK_SEED = 8, MKW_HACK_CLASSIC = 16,
     MKW_HACK_LOGIC_HZ = 32, MKW_HACK_UNLOCK_ALL = 64, MKW_HACK_QUICK_RACE = 128, MKW_HACK_SKIP_MOVIES = 256,
 };
