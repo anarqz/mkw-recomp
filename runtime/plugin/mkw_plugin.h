@@ -166,7 +166,9 @@ enum {   // MkwSettingRow.kind
     MKW_SET_INFO,        // shown only (label, value_text, note). id "##bind_header": the binding rows' column titles
                          // in cells[0..2]
     MKW_SET_BIND,        // a binding row: label, cells[3] (key 1, key 2, controller), cell_enabled[3];
-                         // set "capture:N" (the runtime takes the next key or button, 5 s at most) or "clear:N"
+                         // set "capture:N" (the runtime takes the next key or button, 5 s at most) or "clear:N".
+                         // While a row captures, the drawing gets no key press, text or click and no pad (buttons
+                         // held then stay hidden until released): the press is the runtime's
 };
 #define MKW_SETF_DISABLED 0x01   // greyed out (an environment variable or a rule; note says why); set is refused
 #define MKW_SETF_ENV      0x02   // set by an environment variable
@@ -356,7 +358,8 @@ typedef struct MkwPluginApi {
     int (*overlay_picture)(MkwOverlayFn draw, int max_height);
 
     // ---- version 6: the in-game menu's settings, for a plugin's own page (MkwSettingRow above)
-    // The core tabs' localised names in the menu's order into names[0..max-1]; returns how many there are (7). The
+    // The core tabs' localised names into names[0..max-1]; returns how many there are (7), always in this order:
+    // 0 Screen, 1 Graphics, 2 Sound, 3 Controls, 4 General, 5 Advanced, 6 Hacks (a later version only appends). The
     // strings are the runtime's. Any thread.
     int (*settings_tabs)(const char **names, int max);
     // Replays tab (0..count-1) row by row into cb(row, user): the strings and lists of a row hold during its cb only.
@@ -395,7 +398,7 @@ typedef struct MkwPluginApi {
     // on and apply at start only, so no lock can undo them this run: MKW_HACK_SEED (MKW_SEED: the game's generators
     // were seeded from it) and MKW_HACK_LOGIC_HZ (MKW_LOGIC_HZ other than 60: online races step at that rate); the
     // plugin refuses to go online then. The other bits are never returned. locked 0: as the settings say again;
-    // returns 0. Any thread.
+    // returns 0. Any thread, as often as wanted (idempotent; the log says only what changed).
     int (*hacks_lock)(int locked);
 } MkwPluginApi;
 

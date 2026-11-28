@@ -22,7 +22,9 @@ int hacks_lock(int on) {
         if (seed_used() || *cfg_value("MKW_SEED")) stuck |= MKW_HACK_SEED;   // the generators seeded at start
         if (frame_logic_hz_set() != 60) stuck |= MKW_HACK_LOGIC_HZ;          // the game steps at N Hz online
     }
-    if ((on != 0) != (was != 0) || stuck)
+    static _Atomic int last_stuck = -1;   // a plugin may call this every second: a line only when something changed
+    int stuck_changed = atomic_exchange(&last_stuck, on ? stuck : -1) != (on ? stuck : -1);
+    if ((on != 0) != (was != 0) || (on && stuck_changed))
         rt_log("hacks: %s by a plugin%s%s%s", on ? "locked" : "unlocked", stuck ? "; on since the start:" : "",
                stuck & MKW_HACK_SEED ? " seed" : "", stuck & MKW_HACK_LOGIC_HZ ? " logic rate" : "");
     return stuck;
