@@ -323,6 +323,7 @@ void rt_shot_request(const char *path);                    // the next presented
 void gfx_aspect_set(float a);  // gfx_present.c, from patches.c: MKW_ASPECT's width / height when wider than 16:9, else 0
 int ov_movie_playing(void);  // ov_codec.c: a full-screen movie (1280 wide or more) gave a frame in the last half second
 uint64_t frame_step_ticks(void);                           // game time since the first present in 60 Hz ticks (input scripts)
+int frame_logic_hz_set(void);                              // game.c: MKW_LOGIC_HZ as set at start (no time trial clamp)
 int frame_logic_hz(void);                                  // game.c MKW_LOGIC_HZ: game steps and vsync ticks a second (60)
 void frame_logic_hz_60(void);                              // patches.c: the version has no logichz set, 60 whatever it says
 // In-launch A/B measurement: MKW_AB=<seconds> splits the world clock (frame_step_world_us) into blocks of that much

@@ -32,7 +32,6 @@
 
 #include "cfg.h"
 #include "fs.h"
-#include "hacks.h"
 #include "host.h"
 #include "platform/platform.h"
 
@@ -393,8 +392,7 @@ void classic_seen(void *p, size_t n) {
     size_t len;
     if (n < 0x20 || memcmp(s, "SARC", 4) || g_live.nslot) return;
     if (!sarc_find(s, n, "Gyml/GrandprixSettingGParam/Grandprix.game__GrandprixSettingGParam.bgyml", &len)) return;
-    int lock = hacks_locked();
-    int on[2] = {cfg_bool(kKey[0]) && !lock, cfg_bool(kKey[1]) && !lock};
+    int on[2] = {cfg_bool(kKey[0]), cfg_bool(kKey[1])};
     int k = classic_patch(s, n, g_live.slot, on);
     g_live.on[0] = on[0], g_live.on[1] = on[1];
     __atomic_store_n(&g_live.nslot, k, __ATOMIC_RELEASE);
@@ -405,14 +403,11 @@ void classic_seen(void *p, size_t n) {
 
 void classic_poll(void) {
     static unsigned seen;
-    static int lock_seen;
     unsigned v = cfg_version();
-    int lock = hacks_locked();   // a plugin's lock (lock.c): both off
-    if ((v == seen && lock == lock_seen) || !__atomic_load_n(&g_live.nslot, __ATOMIC_ACQUIRE) ||
-        __atomic_load_n(&g_live.busy, __ATOMIC_ACQUIRE))
+    if (v == seen || !__atomic_load_n(&g_live.nslot, __ATOMIC_ACQUIRE) || __atomic_load_n(&g_live.busy, __ATOMIC_ACQUIRE))
         return;   // a change during a scan: on the frame after it
-    seen = v, lock_seen = lock;
-    int on[2] = {cfg_bool(kKey[0]) && !lock, cfg_bool(kKey[1]) && !lock};
+    seen = v;
+    int on[2] = {cfg_bool(kKey[0]), cfg_bool(kKey[1])};
     if (on[0] == g_live.on[0] && on[1] == g_live.on[1]) return;
     int was[2] = {g_live.on[0], g_live.on[1]};
     g_live.on[0] = g_live.want[0] = on[0], g_live.on[1] = g_live.want[1] = on[1];

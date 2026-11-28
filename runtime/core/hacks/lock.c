@@ -1,8 +1,9 @@
 // The hacks' lock (plugin API 6, MkwPluginApi.hacks_lock): while a plugin says the player is online, the hacks that
-// could give an edge are ignored whatever mkw.ini or the environment says, each where it is read (turbo.c, freeze.c,
-// skip.c, seed.c, classic.c, core/boot/game.c, input/input_script.c, sdk/fs/fs_host.c), and the menu's Hacks tab
-// greys their rows out (ui/menu/settings_tabs.cpp). What only applies at start and already did cannot be taken back:
-// hacks_lock says which.
+// can be used to cheat are ignored whatever mkw.ini or the environment says, where each is read: turbo (turbo.c),
+// freeze (freeze.c) and the input script's playback (input/input_script.c); the menu's Hacks tab greys their rows out
+// with Same randomness (ui/menu/settings_tabs.cpp). The seed and the logic rate apply at start and cannot be taken back
+// live: hacks_lock says when one is on. The other hacks (Classic GP / VS, unlock everything, the quick race, skip
+// movies) are left as they are.
 #include <stdatomic.h>
 
 #include "cfg.h"
@@ -18,11 +19,11 @@ int hacks_lock(int on) {
     int was = atomic_exchange(&locked, on != 0);   // a frozen game runs again at its next present (freeze.c)
     int stuck = 0;
     if (on) {
-        if (seed_used()) stuck |= MKW_HACK_SEED;            // the system's entropy and generators seeded at start
-        if (unlock_applied()) stuck |= MKW_HACK_UNLOCK_ALL; // the save was edited when the game opened it
+        if (seed_used() || *cfg_value("MKW_SEED")) stuck |= MKW_HACK_SEED;   // the generators seeded at start
+        if (frame_logic_hz_set() != 60) stuck |= MKW_HACK_LOGIC_HZ;          // the game steps at N Hz online
     }
     if ((on != 0) != (was != 0) || stuck)
-        rt_log("hacks: %s by a plugin%s%s%s", on ? "locked" : "unlocked", stuck ? "; already applied at start:" : "",
-               stuck & MKW_HACK_SEED ? " seed" : "", stuck & MKW_HACK_UNLOCK_ALL ? " unlock-all" : "");
+        rt_log("hacks: %s by a plugin%s%s%s", on ? "locked" : "unlocked", stuck ? "; on since the start:" : "",
+               stuck & MKW_HACK_SEED ? " seed" : "", stuck & MKW_HACK_LOGIC_HZ ? " logic rate" : "");
     return stuck;
 }
