@@ -17,16 +17,15 @@ void plugins_tab_shown(int i);               // the tab was selected: its next f
 void plugins_exit(void);          // the game ends normally (window closed, the guest's exit): the on_exit callbacks, once
 
 // The plugins' overlay drawings (plugin_overlay.cpp): registered and switched by the API, laid out by ui/menu/menu.cpp
-int plugin_overlay_add(MkwOverlayFn fn, void *user, int owner);   // 0 when full; owner: the plugin's slot
-int plugin_overlay_owner_dead(int owner);               // a drawing of that plugin faulted (menu_redirect skips it)
+int plugin_overlay_add(MkwOverlayFn fn, void *user);   // 0 when full
 // Version 6 (plugin_overlay.cpp): the in-game menu's settings for a plugin's page (MkwPluginApi.settings_*)
 int plugin_settings_tabs(const char **names, int max);
 int plugin_settings_rows(int tab, MkwSettingFn cb, void *user);
 int plugin_settings_set(int tab, const char *id, const char *value);
 int plugin_settings_confirm_reset(void);
 const char *plugin_settings_status(void);
-// Version 6 (plugin.c): F1, Esc and the pad's shortcut ask the plugins' menu_redirect first (ui/menu/menu.cpp
-// menu_toggle); 1 when one opened its page instead
+// Version 6 (plugin.c): while a plugin holds the in-game menu (menu_redirect), opening it (ui/menu/menu.cpp
+// menu_toggle: F1, Esc, the pad's shortcut, menu_open) calls the plugin instead; 1 when one holds it
 int plugins_menu_redirect(void);
 void plugin_overlay_show(MkwOverlayFn fn, int on);
 int plugins_overlay_wanted(void);                       // one is on: the overlay lays out a frame

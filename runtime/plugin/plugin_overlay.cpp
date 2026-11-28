@@ -64,7 +64,6 @@ static struct {
     std::atomic<int> picture;   // overlay_picture's max_height, 0 off
     void (*on_fault)(void *user);
     void *fault_user;
-    int owner;                  // the plugin's slot (plugin.c), for menu_redirect
     ImDrawList *list;           // present thread: this frame's drawing
     int used;                   // present thread: list was drawn into this frame
 } g_draws[MAX_DRAWS];
@@ -100,20 +99,13 @@ static void capture_set(int i, int flags) {
     }
 }
 
-extern "C" int plugin_overlay_add(MkwOverlayFn fn, void *user, int owner) {
+extern "C" int plugin_overlay_add(MkwOverlayFn fn, void *user) {
     int n = g_n.load();
     if (!fn || n == MAX_DRAWS || index_of(fn) >= 0) return 0;
     g_draws[n].fn = fn;
     g_draws[n].user = user;
-    g_draws[n].owner = owner;
     g_n.store(n + 1);
     return 1;
-}
-
-extern "C" int plugin_overlay_owner_dead(int owner) {
-    for (int i = 0, n = g_n.load(); i < n; i++)
-        if (g_draws[i].owner == owner && g_draws[i].dead.load()) return 1;
-    return 0;
 }
 
 extern "C" int plugin_overlay_on_fault(MkwOverlayFn fn, void (*cb)(void *user), void *user) {
